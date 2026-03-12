@@ -24,17 +24,49 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let { width, height } = video;
-    const max = 1280;
-    if (width > max || height > max) {
-      const scale = max / Math.max(width, height);
-      width = Math.round(width * scale);
-      height = Math.round(height * scale);
+    const vw = video.videoWidth;
+    const vh = video.videoHeight;
+    const max = 1920;
+
+    // On mobile, camera often outputs landscape while device is portrait.
+    // Rotate 90° CW so the captured image matches what the user sees.
+    const isPortrait = typeof window !== 'undefined' && window.innerHeight > window.innerWidth;
+    const needsRotation = isPortrait && vw > vh;
+
+    let w = needsRotation ? vh : vw;
+    let h = needsRotation ? vw : vh;
+
+    if (w > max || h > max) {
+      const scale = max / Math.max(w, h);
+      w = Math.round(w * scale);
+      h = Math.round(h * scale);
     }
-    canvas.width = width;
-    canvas.height = height;
-    ctx.drawImage(video, 0, 0, width, height);
-    canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.85);
+
+    if (needsRotation) {
+      const tmp = document.createElement('canvas');
+      tmp.width = vw;
+      tmp.height = vh;
+      tmp.getContext('2d')!.drawImage(video, 0, 0);
+      canvas.width = vh;
+      canvas.height = vw;
+      ctx.setTransform(0, 1, -1, 0, vh, 0);
+      ctx.drawImage(tmp, 0, 0);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      if (w !== vh || h !== vw) {
+        const out = document.createElement('canvas');
+        out.width = w;
+        out.height = h;
+        out.getContext('2d')!.drawImage(canvas, 0, 0, vh, vw, 0, 0, w, h);
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(out, 0, 0);
+      }
+    } else {
+      canvas.width = w;
+      canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+    }
+    canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.92);
   };
 
   useImperativeHandle(ref, () => ({ capture }), [stream, onCapture]);

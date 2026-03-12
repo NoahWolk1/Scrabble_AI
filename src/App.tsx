@@ -11,40 +11,7 @@ import { speak } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
 import { recognizeBoard } from './cv/BoardRecognizer';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
-
-/** Resize image for faster upload/processing on mobile. Max 1280px. */
-async function resizeImageIfNeeded(blob: Blob, maxSize = 1280): Promise<Blob> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(blob);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const { width, height } = img;
-      if (width <= maxSize && height <= maxSize) {
-        resolve(blob);
-        return;
-      }
-      const scale = maxSize / Math.max(width, height);
-      const w = Math.round(width * scale);
-      const h = Math.round(height * scale);
-      const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) {
-        resolve(blob);
-        return;
-      }
-      ctx.drawImage(img, 0, 0, w, h);
-      canvas.toBlob((b) => (b ? resolve(b) : resolve(blob)), 'image/jpeg', 0.85);
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(blob);
-    };
-    img.src = url;
-  });
-}
+import { prepareImageForRecognition } from './cv/imageUtils';
 
 function App() {
   const {
@@ -92,8 +59,8 @@ function App() {
       // Yield to browser so video can render next frame before we block
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       try {
-        const resized = await resizeImageIfNeeded(file);
-        const grid = await recognizeBoard(resized, { useGeminiFix });
+        const prepared = await prepareImageForRecognition(file);
+        const grid = await recognizeBoard(prepared, { useGeminiFix });
         const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
         if (isHumanTurn) {
           const result = applyHumanMoveFromBoardImage(grid);
@@ -105,7 +72,8 @@ function App() {
         }
       } catch (err) {
         console.error('Recognition failed:', err);
-        showToast('Board recognition failed. Try better lighting or a clearer top-down photo.');
+        const msg = err instanceof Error ? err.message : 'Board recognition failed.';
+        showToast(msg);
       } finally {
         setRecognizing(false);
       }
@@ -119,8 +87,8 @@ function App() {
       setToast(null);
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       try {
-        const resized = await resizeImageIfNeeded(file);
-        const res = await recognizeRackFromImage(resized);
+        const prepared = await prepareImageForRecognition(file);
+        const res = await recognizeRackFromImage(prepared);
         if (res.status === 'OK' && res.rack) {
           const rack = res.rack.split(',').map((c) => (c.trim() === '?' ? ' ' : c.trim().toUpperCase()));
           setHumanRack(rack);
