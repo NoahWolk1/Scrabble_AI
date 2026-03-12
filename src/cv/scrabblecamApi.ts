@@ -72,7 +72,10 @@ export async function recognizeBoardFromImage(file: Blob): Promise<BoardResponse
     throw new Error('Image is empty. Please try capturing again.');
   }
   const formData = new FormData();
-  const blob = file.type?.startsWith('image/') ? file : new Blob([file], { type: 'image/jpeg' });
+  const blob =
+    file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp'
+      ? file
+      : new Blob([file], { type: 'image/jpeg' });
   formData.append('file', blob, 'board.jpg');
 
   const res = await fetch(`${API_BASE}/process`, {
@@ -97,7 +100,10 @@ export async function recognizeRackFromImage(file: Blob): Promise<RackResponse> 
     throw new Error('Image is empty. Please try capturing again.');
   }
   const formData = new FormData();
-  const blob = file.type?.startsWith('image/') ? file : new Blob([file], { type: 'image/jpeg' });
+  const blob =
+    file.type === 'image/jpeg' || file.type === 'image/png' || file.type === 'image/webp'
+      ? file
+      : new Blob([file], { type: 'image/jpeg' });
   formData.append('file', blob, 'rack.jpg');
 
   const res = await fetch(`${API_BASE}/process_rack`, {

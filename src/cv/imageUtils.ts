@@ -133,14 +133,20 @@ export async function prepareImageForRecognition(
       }
 
       canvas.toBlob(
-        (b) => (b ? resolve(b) : resolve(blob)),
+        (b) => {
+          if (b && b.size > 0) {
+            resolve(b);
+          } else {
+            reject(new Error('Failed to convert image to JPEG. Try a different photo.'));
+          }
+        },
         'image/jpeg',
         quality
       );
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Failed to load image'));
+      reject(new Error('Could not load image. Use JPEG or PNG. HEIC may not be supported in your browser.'));
     };
     img.src = url;
   });

@@ -311,7 +311,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (err) {
     console.warn('Gemini fix failed, falling back to post-processing:', err);
     try {
-      const fixed = applyPostProcessingOnly(grid);
+      const fallbackGrid = req.body?.grid as (string | null)[][] | undefined;
+      if (!Array.isArray(fallbackGrid) || fallbackGrid.length !== 15) {
+        throw new Error('No valid grid for fallback');
+      }
+      const fixed = applyPostProcessingOnly(fallbackGrid);
       return res.status(200).json({ status: 'OK', grid: fixed });
     } catch (fallbackErr) {
       console.error('Fallback failed:', fallbackErr);

@@ -275,7 +275,7 @@ function App() {
                     Upload board image
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       className="sr-only"
                       disabled={recognizing}
                       onChange={(e) => {
@@ -291,7 +291,7 @@ function App() {
                     Upload rack image
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       className="sr-only"
                       disabled={recognizing}
                       onChange={(e) => {
@@ -325,7 +325,7 @@ function App() {
                     Upload board
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       className="sr-only"
                       disabled={recognizing}
                       onChange={(e) => {
@@ -341,7 +341,7 @@ function App() {
                     Upload rack
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
                       className="sr-only"
                       disabled={recognizing}
                       onChange={(e) => {
