@@ -29,6 +29,7 @@ export function GameControls() {
     playHumanMove,
     passHuman,
     status,
+    validateMove,
   } = useGameStore();
 
   const [suggestions, setSuggestions] = useState<SuggestedMove[]>([]);
@@ -46,24 +47,27 @@ export function GameControls() {
       const res = await getMovesFromApi(rackStr, boardStr);
       if (res.status === 'OK' && res.moves?.length > 0) {
         const boardArr = board.toArray();
-        const top = res.moves.slice(0, 5).flatMap((moveStr) => {
+        const valid: SuggestedMove[] = [];
+        for (const moveStr of res.moves) {
+          if (valid.length >= 5) break;
           const parsed = parseScrabblecamMove(moveStr, boardArr);
-          if (!parsed || parsed.tiles.length === 0) return [];
+          if (!parsed || parsed.tiles.length === 0 || !validateMove(parsed.tiles)) continue;
           const dir = parsed.tiles[0].row === parsed.tiles[parsed.tiles.length - 1].row ? 'H' : 'V';
-          return [{
+          valid.push({
             word: parsed.word,
             score: parsed.score,
             row: parsed.row,
             col: parsed.col,
             direction: dir,
             tiles: parsed.tiles,
-          }];
-        });
-        setSuggestions(top);
+          });
+        }
+        setSuggestions(valid);
       } else if (humanRack.length > 0) {
         const moves = generateMoves(board, humanRack, trie, isFirstMove);
         const fallback = moves
           .sort((a, b) => b.score - a.score)
+          .filter((m) => validateMove(m.tiles))
           .slice(0, 5)
           .map((m) => ({
             word: m.word,
@@ -81,6 +85,7 @@ export function GameControls() {
         const moves = generateMoves(board, humanRack, trie, isFirstMove);
         const fallback = moves
           .sort((a, b) => b.score - a.score)
+          .filter((m) => validateMove(m.tiles))
           .slice(0, 5)
           .map((m) => ({
             word: m.word,

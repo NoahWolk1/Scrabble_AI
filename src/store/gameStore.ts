@@ -71,6 +71,7 @@ interface GameStore {
   setBoardCell: (row: number, col: number, letter: string | null) => void;
   setHumanRack: (rack: string[]) => void;
   applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => { success: boolean; message?: string };
+  validateMove: (tiles: PlacedTile[]) => boolean;
 }
 
 function applyMove(board: BoardState, tiles: PlacedTile[]): void {
@@ -376,5 +377,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
     const result = get().playHumanMove(newTiles);
     return result.success ? { success: true } : { success: false, message: result.message ?? 'Invalid move' };
+  },
+
+  validateMove: (tiles) => {
+    const { board, trie } = get();
+    return trie ? isMoveValid(board, tiles, trie) : false;
   },
 }));

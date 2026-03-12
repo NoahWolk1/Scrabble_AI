@@ -139,16 +139,19 @@ function App() {
     }
   }, [_currentPlayer, gameOver, startCamera, stopCamera, stream]);
 
+  const scrollClass =
+    'h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-none touch-pan-y bg-stone-100 dark:bg-stone-900';
+
   if (!trie) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-stone-100 dark:bg-stone-900">
+      <div className={`${scrollClass} flex items-center justify-center`}>
         <p className="text-lg">Loading dictionary...</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen min-h-[100dvh] bg-stone-100 dark:bg-stone-900 pb-24 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y [overflow-anchor:auto]">
+    <div className={`${scrollClass} pb-24`}>
       <div className="max-w-xl mx-auto px-4">
         <h1 className="text-2xl font-bold text-center py-4 text-stone-800 dark:text-stone-100">
           Scrabble AI
