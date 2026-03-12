@@ -1,0 +1,10 @@
+{
+  "name": "Scrabble AI",
+  "short_name": "Scrabble AI",
+  "description": "Play expert Scrabble vs AI with camera board recognition",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#fafaf9",
+  "theme_color": "#78716c",
+  "orientation": "portrait-primary"
+}
