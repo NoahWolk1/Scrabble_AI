@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Board } from './components/Board';
 import { LetterPicker } from './components/LetterPicker';
 import { Rack } from './components/Rack';
@@ -11,6 +11,40 @@ import { speak } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
 import { recognizeBoard } from './cv/BoardRecognizer';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
+
+/** Resize image for faster upload/processing on mobile. Max 1280px. */
+async function resizeImageIfNeeded(blob: Blob, maxSize = 1280): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const { width, height } = img;
+      if (width <= maxSize && height <= maxSize) {
+        resolve(blob);
+        return;
+      }
+      const scale = maxSize / Math.max(width, height);
+      const w = Math.round(width * scale);
+      const h = Math.round(height * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve(blob);
+        return;
+      }
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((b) => (b ? resolve(b) : resolve(blob)), 'image/jpeg', 0.85);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(blob);
+    };
+    img.src = url;
+  });
+}
 
 function App() {
   const {
@@ -34,51 +68,74 @@ function App() {
   const [recognizing, setRecognizing] = useState(false);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [useGeminiFix, setUseGeminiFix] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
   const setBoardFromRecognition = useGameStore((s) => s.setBoardFromRecognition);
   const setHumanRack = useGameStore((s) => s.setHumanRack);
   const applyHumanMoveFromBoardImage = useGameStore((s) => s.applyHumanMoveFromBoardImage);
   const lastAIMoveRef = useRef<unknown>(null);
   const cameraRef = useRef<CameraViewRef>(null);
 
-  const handleBoardImage = async (file: Blob) => {
-    setRecognizing(true);
-    try {
-      const grid = await recognizeBoard(file, { useGeminiFix });
-      const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
-      if (isHumanTurn) {
-        const result = applyHumanMoveFromBoardImage(grid);
-        if (result.success) {
-        } else {
-          alert(result.message);
-        }
-      } else {
-        setBoardFromRecognition(grid);
-      }
-    } catch (err) {
-      console.error('Recognition failed:', err);
-      alert('Board recognition failed. Try better lighting or a clearer top-down photo.');
-    } finally {
-      setRecognizing(false);
-    }
-  };
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showToast = useCallback((msg: string) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setToast(msg);
+    toastTimeoutRef.current = setTimeout(() => {
+      setToast(null);
+      toastTimeoutRef.current = null;
+    }, 5000);
+  }, []);
 
-  const handleRackImage = async (file: Blob) => {
-    setRecognizing(true);
-    try {
-      const res = await recognizeRackFromImage(file);
-      if (res.status === 'OK' && res.rack) {
-        const rack = res.rack.split(',').map((c) => (c.trim() === '?' ? ' ' : c.trim().toUpperCase()));
-        setHumanRack(rack);
-      } else {
-        alert(res.message ?? 'Rack recognition failed.');
+  const handleBoardImage = useCallback(
+    async (file: Blob) => {
+      setRecognizing(true);
+      setToast(null);
+      // Yield to browser so video can render next frame before we block
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+      try {
+        const resized = await resizeImageIfNeeded(file);
+        const grid = await recognizeBoard(resized, { useGeminiFix });
+        const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
+        if (isHumanTurn) {
+          const result = applyHumanMoveFromBoardImage(grid);
+          if (!result.success) {
+            showToast(result.message ?? 'Recognition failed');
+          }
+        } else {
+          setBoardFromRecognition(grid);
+        }
+      } catch (err) {
+        console.error('Recognition failed:', err);
+        showToast('Board recognition failed. Try better lighting or a clearer top-down photo.');
+      } finally {
+        setRecognizing(false);
       }
-    } catch (err) {
-      console.error('Rack recognition failed:', err);
-      alert('Rack recognition failed. Try a clear photo of your tiles.');
-    } finally {
-      setRecognizing(false);
-    }
-  };
+    },
+    [applyHumanMoveFromBoardImage, setBoardFromRecognition, useGeminiFix, showToast]
+  );
+
+  const handleRackImage = useCallback(
+    async (file: Blob) => {
+      setRecognizing(true);
+      setToast(null);
+      await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+      try {
+        const resized = await resizeImageIfNeeded(file);
+        const res = await recognizeRackFromImage(resized);
+        if (res.status === 'OK' && res.rack) {
+          const rack = res.rack.split(',').map((c) => (c.trim() === '?' ? ' ' : c.trim().toUpperCase()));
+          setHumanRack(rack);
+        } else {
+          showToast(res.message ?? 'Rack recognition failed');
+        }
+      } catch (err) {
+        console.error('Rack recognition failed:', err);
+        showToast('Rack recognition failed. Try a clear photo of your tiles.');
+      } finally {
+        setRecognizing(false);
+      }
+    },
+    [setHumanRack, showToast]
+  );
 
   useEffect(() => {
     loadDictionary().then((dict) => {
@@ -123,7 +180,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-100 dark:bg-stone-900 pb-24">
+    <div className="min-h-screen bg-stone-100 dark:bg-stone-900 pb-24 overflow-y-auto overscroll-contain touch-pan-y">
       <div className="max-w-xl mx-auto px-4">
         <h1 className="text-2xl font-bold text-center py-4 text-stone-800 dark:text-stone-100">
           Scrabble AI
@@ -340,6 +397,22 @@ function App() {
               </>
             )}
           </div>
+
+          {toast && (
+            <div
+              role="alert"
+              className="fixed bottom-20 left-4 right-4 z-50 mx-auto max-w-xl px-4 py-3 bg-amber-600 text-white rounded-xl shadow-lg flex items-center justify-between gap-3"
+            >
+              <p className="text-sm flex-1">{toast}</p>
+              <button
+                type="button"
+                onClick={() => setToast(null)}
+                className="shrink-0 px-3 py-1 bg-white/20 rounded-lg text-sm font-medium touch-manipulation"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

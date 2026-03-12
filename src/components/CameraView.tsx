@@ -24,10 +24,17 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0);
-    canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.9);
+    let { width, height } = video;
+    const max = 1280;
+    if (width > max || height > max) {
+      const scale = max / Math.max(width, height);
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+    }
+    canvas.width = width;
+    canvas.height = height;
+    ctx.drawImage(video, 0, 0, width, height);
+    canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.85);
   };
 
   useImperativeHandle(ref, () => ({ capture }), [stream, onCapture]);
@@ -39,7 +46,7 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   }, [stream]);
 
   return (
-    <div className="relative aspect-square max-w-md mx-auto bg-stone-800 rounded-xl overflow-hidden">
+    <div className="relative aspect-square max-w-md mx-auto bg-stone-800 rounded-xl overflow-hidden isolate">
       <video
         ref={videoRef}
         autoPlay
