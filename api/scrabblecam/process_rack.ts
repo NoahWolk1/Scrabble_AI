@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import formidable from 'formidable';
-import { createReadStream } from 'fs';
+import { readFile } from 'fs/promises';
 import FormData from 'form-data';
 
 export const config = {
@@ -21,8 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ status: 'ERROR', message: 'No file uploaded' });
     }
 
+    const buffer = await readFile(file.filepath);
+
     const formData = new FormData();
-    formData.append('file', createReadStream(file.filepath), {
+    formData.append('file', buffer, {
       filename: file.originalFilename ?? 'rack.jpg',
       contentType: file.mimetype ?? 'image/jpeg',
     });
@@ -33,7 +35,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       headers: formData.getHeaders() as HeadersInit,
     });
 
-    const data = await scrabblecamRes.json();
+    let data: { status: string; rack?: string | null; message?: string };
+    try {
+      data = (await scrabblecamRes.json()) as typeof data;
+    } catch {
+      data = { status: 'ERROR', message: `Scrabblecam returned ${scrabblecamRes.status}` };
+    }
+
     res.status(scrabblecamRes.status).json(data);
   } catch (err) {
     console.error('Scrabblecam rack proxy error:', err);

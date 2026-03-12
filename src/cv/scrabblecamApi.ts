@@ -68,18 +68,24 @@ export function parseScrabblecamMove(
  * Returns 15×15 grid: comma-separated cells, rows separated by |. Empty = "", blank = ?
  */
 export async function recognizeBoardFromImage(file: Blob): Promise<BoardResponse> {
+  if (file.size === 0) {
+    throw new Error('Image is empty. Please try capturing again.');
+  }
   const formData = new FormData();
-  formData.append('file', file, 'board.jpg');
+  const blob = file.type?.startsWith('image/') ? file : new Blob([file], { type: 'image/jpeg' });
+  formData.append('file', blob, 'board.jpg');
 
   const res = await fetch(`${API_BASE}/process`, {
     method: 'POST',
     body: formData,
   });
 
+  const data = (await res.json()) as BoardResponse;
   if (!res.ok) {
-    throw new Error(`Scrabblecam API error: ${res.status}`);
+    const msg = data?.message ?? `Scrabblecam API error: ${res.status}`;
+    throw new Error(msg);
   }
-  return res.json() as Promise<BoardResponse>;
+  return data;
 }
 
 /**
@@ -87,18 +93,24 @@ export async function recognizeBoardFromImage(file: Blob): Promise<BoardResponse
  * Returns comma-separated letters, blank = ?
  */
 export async function recognizeRackFromImage(file: Blob): Promise<RackResponse> {
+  if (file.size === 0) {
+    throw new Error('Image is empty. Please try capturing again.');
+  }
   const formData = new FormData();
-  formData.append('file', file, 'rack.jpg');
+  const blob = file.type?.startsWith('image/') ? file : new Blob([file], { type: 'image/jpeg' });
+  formData.append('file', blob, 'rack.jpg');
 
   const res = await fetch(`${API_BASE}/process_rack`, {
     method: 'POST',
     body: formData,
   });
 
+  const data = (await res.json()) as RackResponse;
   if (!res.ok) {
-    throw new Error(`Scrabblecam API error: ${res.status}`);
+    const msg = data?.message ?? `Scrabblecam API error: ${res.status}`;
+    throw new Error(msg);
   }
-  return res.json() as Promise<RackResponse>;
+  return data;
 }
 
 /**
