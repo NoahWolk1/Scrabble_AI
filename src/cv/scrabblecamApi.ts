@@ -83,7 +83,12 @@ export async function recognizeBoardFromImage(file: Blob): Promise<BoardResponse
     body: formData,
   });
 
-  const data = (await res.json()) as BoardResponse;
+  let data: BoardResponse;
+  try {
+    data = (await res.json()) as BoardResponse;
+  } catch {
+    throw new Error(`Scrabblecam API error: ${res.status}`);
+  }
   if (!res.ok) {
     const msg = data?.message ?? `Scrabblecam API error: ${res.status}`;
     throw new Error(msg);
@@ -111,7 +116,12 @@ export async function recognizeRackFromImage(file: Blob): Promise<RackResponse> 
     body: formData,
   });
 
-  const data = (await res.json()) as RackResponse;
+  let data: RackResponse;
+  try {
+    data = (await res.json()) as RackResponse;
+  } catch {
+    throw new Error(`Scrabblecam API error: ${res.status}`);
+  }
   if (!res.ok) {
     const msg = data?.message ?? `Scrabblecam API error: ${res.status}`;
     throw new Error(msg);
