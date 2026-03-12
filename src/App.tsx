@@ -148,7 +148,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-stone-100 dark:bg-stone-900 pb-24 overflow-y-auto overscroll-contain touch-pan-y">
+    <div className="min-h-screen min-h-[100dvh] bg-stone-100 dark:bg-stone-900 pb-24 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y [overflow-anchor:auto]">
       <div className="max-w-xl mx-auto px-4">
         <h1 className="text-2xl font-bold text-center py-4 text-stone-800 dark:text-stone-100">
           Scrabble AI

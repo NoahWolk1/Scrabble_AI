@@ -14,6 +14,24 @@ import {
   parseScrabblecamMove,
 } from '../cv/scrabblecamApi';
 
+/** Validate that a move forms only legal words (main word + cross-words) per our dictionary. */
+function isMoveValid(board: BoardState, tiles: PlacedTile[], trie: Trie): boolean {
+  const testBoard = board.clone();
+  for (const t of tiles) testBoard.set(t.row, t.col, t.letter);
+
+  const main = testBoard.getMainWord(tiles);
+  if (!main) return false;
+  if (!trie.has(main.word)) return false;
+
+  const direction = main.direction;
+  const crossWords = testBoard.getCrossWords(tiles, direction);
+  const uniqueCross = [...new Set(crossWords)];
+  for (const w of uniqueCross) {
+    if (w.length > 1 && !trie.has(w)) return false;
+  }
+  return true;
+}
+
 export interface LastAIMove {
   word: string;
   score: number;
@@ -172,18 +190,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const rackStr = rackToApiFormat(aiRack);
       const res = await getMovesFromApi(rackStr, boardStr);
       if (res.status === 'OK' && res.moves?.length > 0) {
-        const moveIdx = Math.min(pickMoveIndex(res.moves.length), res.moves.length - 1);
-        const moveStr = res.moves[moveIdx];
-        const parsed = parseScrabblecamMove(moveStr, board.toArray());
-        if (parsed && parsed.tiles.length > 0) {
-          bestMove = {
-            tiles: parsed.tiles,
-            word: parsed.word,
-            score: parsed.score,
-            direction: parsed.tiles[0].row === parsed.tiles[parsed.tiles.length - 1].row ? 'horizontal' : 'vertical',
-            row: parsed.row,
-            col: parsed.col,
-          };
+        const preferredIdx = pickMoveIndex(res.moves.length);
+        const order = [
+          ...Array.from({ length: res.moves.length }, (_, i) => (preferredIdx + i) % res.moves.length),
+        ];
+        for (const idx of order) {
+          const parsed = parseScrabblecamMove(res.moves[idx], board.toArray());
+          if (parsed && parsed.tiles.length > 0 && isMoveValid(board, parsed.tiles, trie)) {
+            bestMove = {
+              tiles: parsed.tiles,
+              word: parsed.word,
+              score: parsed.score,
+              direction: parsed.tiles[0].row === parsed.tiles[parsed.tiles.length - 1].row ? 'horizontal' : 'vertical',
+              row: parsed.row,
+              col: parsed.col,
+            };
+            break;
+          }
         }
       }
     } catch (err) {
@@ -193,16 +216,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!bestMove) {
       const moves = generateMoves(board, aiRack, trie, isFirstMove);
       const sorted = moves.sort((a, b) => b.score - a.score);
-      const picked = sorted[pickMoveIndex(sorted.length)];
-      if (picked) {
-        bestMove = {
-          tiles: picked.tiles,
-          word: picked.word,
-          score: picked.score,
-          direction: picked.direction,
-          row: picked.row,
-          col: picked.col,
-        };
+      const preferredIdx = pickMoveIndex(sorted.length);
+      for (let i = 0; i < sorted.length; i++) {
+        const picked = sorted[(preferredIdx + i) % sorted.length];
+        if (picked && isMoveValid(board, picked.tiles, trie)) {
+          bestMove = {
+            tiles: picked.tiles,
+            word: picked.word,
+            score: picked.score,
+            direction: picked.direction,
+            row: picked.row,
+            col: picked.col,
+          };
+          break;
+        }
       }
     }
 
