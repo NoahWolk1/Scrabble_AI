@@ -405,7 +405,7 @@ function App() {
                 </div>
                 {_currentPlayer === 'human' && !gameOver && !recognizing && (
                   <p className="text-stone-500 text-center text-sm">
-                    Make your move, then say &quot;your turn&quot;, &quot;capture&quot;, &quot;done&quot;, &quot;finish&quot;, &quot;go&quot;, etc.—or tap Capture board. Voice not working? Add <code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">?debug=1</code> to the URL and check the console.
+                    Make your move, then say &quot;your turn&quot;, &quot;capture&quot;, &quot;done&quot;, &quot;finish&quot;, &quot;go&quot;, etc.—or tap Capture board.
                   </p>
                 )}
               </>
