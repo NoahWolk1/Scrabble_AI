@@ -42,6 +42,7 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
       h = Math.round(h * scale);
     }
 
+    // Preview uses scaleX(-1) so board faces player; capture is flipped to match for recognition API
     if (needsRotation) {
       const tmp = document.createElement('canvas');
       tmp.width = vw;
@@ -61,22 +62,23 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         canvas.height = h;
         ctx.drawImage(out, 0, 0);
       }
+      // Flip to match mirrored preview (board was backwards for recognition)
+      const flipped = document.createElement('canvas');
+      flipped.width = canvas.width;
+      flipped.height = canvas.height;
+      flipped.getContext('2d')!.scale(-1, 1);
+      flipped.getContext('2d')!.drawImage(canvas, 0, 0, canvas.width, canvas.height, -canvas.width, 0, canvas.width, canvas.height);
+      canvas.width = flipped.width;
+      canvas.height = flipped.height;
+      ctx.drawImage(flipped, 0, 0);
     } else {
       canvas.width = w;
       canvas.height = h;
-      ctx.drawImage(video, 0, 0, w, h);
+      ctx.save();
+      ctx.scale(-1, 1);
+      ctx.drawImage(video, 0, 0, vw, vh, -w, 0, w, h);
+      ctx.restore();
     }
-
-    // Preview uses scaleX(-1); flip capture so it matches what user sees.
-    const cw = canvas.width;
-    const ch = canvas.height;
-    const tmp = document.createElement('canvas');
-    tmp.width = cw;
-    tmp.height = ch;
-    tmp.getContext('2d')!.drawImage(canvas, 0, 0);
-    ctx.setTransform(-1, 0, 0, 1, cw, 0);
-    ctx.drawImage(tmp, 0, 0);
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
     canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.92);
   };
 
