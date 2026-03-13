@@ -66,6 +66,17 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
       canvas.height = h;
       ctx.drawImage(video, 0, 0, w, h);
     }
+
+    // Preview uses scaleX(-1); flip capture so it matches what user sees.
+    const cw = canvas.width;
+    const ch = canvas.height;
+    const tmp = document.createElement('canvas');
+    tmp.width = cw;
+    tmp.height = ch;
+    tmp.getContext('2d')!.drawImage(canvas, 0, 0);
+    ctx.setTransform(-1, 0, 0, 1, cw, 0);
+    ctx.drawImage(tmp, 0, 0);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.92);
   };
 
