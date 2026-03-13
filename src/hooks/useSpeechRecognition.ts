@@ -32,8 +32,8 @@ export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest'
 
 function matchCommand(transcript: string): VoiceCommand {
   const t = transcript.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  // Flexible match for capture triggers (mobile transcription varies)
-  if (/\b(your\s*turn|you\s*re\s*turn|you\s*turn|ur\s*turn)\b/.test(t)) return 'your_turn';
+  // Match phrase as substring (transcript can have prior text, e.g. "helloyouryour turn")
+  if (/(your|you\s*re|you|ur)\s*turn\b/.test(t)) return 'your_turn';
   if (/\bcapture\b/.test(t)) return 'your_turn';
   if (/\b(done|finished)\b/.test(t)) return 'your_turn';
   if (/\b(i\s*am\s*done|im\s*done)\b/.test(t)) return 'your_turn';
