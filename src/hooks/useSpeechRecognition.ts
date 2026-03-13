@@ -79,6 +79,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
 
     const debug = typeof window !== 'undefined' && (window.location.search.includes('debug=1') || localStorage.getItem('scrabble-voice-debug') === '1');
+    if (debug) console.log('[voice] Debug ON – recognition starting. Speak to see transcripts.');
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (!activeRef.current) return;
@@ -87,7 +88,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
         const result = event.results[i];
         const t = (result[0].transcript || '').trim();
         chunk += t + ' ';
-        if (debug && t) console.log('[voice]', result.isFinal ? 'final' : 'interim', JSON.stringify(t));
+        if (debug) console.log('[voice]', result.isFinal ? 'final' : 'interim', t ? JSON.stringify(t) : '(empty)');
       }
       transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
       // Keep only last ~150 chars to avoid unbounded growth; mobile often splits "your turn" across events
@@ -97,7 +98,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       const toCheck = transcriptAccumRef.current;
       if (!toCheck) return;
       const cmd = matchCommand(toCheck);
-      if (debug && toCheck) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
+      if (debug) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
       if (cmd) {
         const now = Date.now();
         if (now - lastCommandTimeRef.current < 2500) return;
@@ -109,12 +110,14 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (debug) console.log('[voice] error', event.error);
       if (event.error !== 'no-speech' && event.error !== 'aborted') {
         setError(event.error);
       }
     };
 
     recognition.onend = () => {
+      if (debug) console.log('[voice] onend – recognition stopped, will restart if still active');
       setListening(false);
       if (activeRef.current) {
         // Brief delay before restart—helps iOS Safari avoid rapid restart issues
