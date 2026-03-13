@@ -9,7 +9,7 @@ interface VoiceCaptureTriggerProps {
 }
 
 /**
- * Listens for "your turn", "capture", or "done" and triggers capture.
+ * Listens for "your turn", "capture", "done", "finish", "go", and similar phrases—triggers capture.
  * Used on the Camera tab for hands-free capture.
  */
 export function VoiceCaptureTrigger({ onCapture, active, requireTapToStart = true }: VoiceCaptureTriggerProps) {

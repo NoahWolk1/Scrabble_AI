@@ -35,9 +35,12 @@ function matchCommand(transcript: string): VoiceCommand {
   // Match phrase as substring (transcript can have prior text, e.g. "helloyouryour turn")
   if (/(your|you\s*re|you|ur)\s*turn\b/.test(t)) return 'your_turn';
   if (/\bcapture\b/.test(t)) return 'your_turn';
-  if (/\b(done|finished)\b/.test(t)) return 'your_turn';
-  if (/\b(i\s*am\s*done|im\s*done)\b/.test(t)) return 'your_turn';
-  if (/\btake\s*(?:a\s*)?(?:picture|photo)\b/.test(t)) return 'your_turn';
+  if (/\b(done|finish|finished|finishing)\b/.test(t)) return 'your_turn';
+  if (/\b(i\s*am\s*done|i\s*m\s*done|im\s*done)\b/.test(t)) return 'your_turn';
+  if (/\b(go|lets\s*go|let's\s*go|okay\s*go|ok\s*go)\b/.test(t)) return 'your_turn';
+  if (/\b(ready|complete|submitted|submit|next)\b/.test(t)) return 'your_turn';
+  if (/\btake\s*(?:a\s*)?(?:picture|photo|shot)\b/.test(t)) return 'your_turn';
+  if (/\b(ok(?:ay)?|yeah|yes)\s*(?:go|capture|done|finish)\b/.test(t)) return 'your_turn';
   if (/\bok(?:ay)?\s*capture\b/.test(t)) return 'your_turn';
   if (/\bplay\b/.test(t)) return 'play';
   if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
