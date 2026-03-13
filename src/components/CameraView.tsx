@@ -85,7 +85,6 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         playsInline
         muted
         className="w-full h-full object-cover"
-        style={{ transform: 'scaleX(-1)' }}
       />
       <canvas ref={canvasRef} className="hidden" />
       {showCaptureButton && (
