@@ -33,12 +33,12 @@ function App() {
     setAIDifficulty,
   } = useGameStore();
   const { stream, error, loading, startCamera, stopCamera } = useCamera();
+  const [recognizing, setRecognizing] = useState(false);
   const cameraRef = useRef<CameraViewRef>(null);
   const captureActive = _currentPlayer === 'human' && !gameOver && !recognizing && !!stream;
   const { supported: voiceSupported, listening, startListening, stopListening } = useSpeechRecognition((cmd) => {
     if (cmd === 'your_turn') cameraRef.current?.capture();
   });
-  const [recognizing, setRecognizing] = useState(false);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [useGeminiFix, setUseGeminiFix] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
