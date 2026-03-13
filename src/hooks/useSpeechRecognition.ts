@@ -63,6 +63,70 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     setSupported(!!SR);
   }, []);
 
+  const debugRef = useRef(false);
+  debugRef.current = typeof window !== 'undefined' && (window.location.search.includes('debug=1') || localStorage.getItem('scrabble-voice-debug') === '1');
+
+  const createAndStartRecognition = useCallback(() => {
+    const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      if (!activeRef.current) return;
+      let chunk = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const t = (result[0].transcript || '').trim();
+        chunk += t + ' ';
+        if (debugRef.current) console.log('[voice]', result.isFinal ? 'final' : 'interim', t ? JSON.stringify(t) : '(empty)');
+      }
+      transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
+      if (transcriptAccumRef.current.length > 150) {
+        transcriptAccumRef.current = transcriptAccumRef.current.slice(-150);
+      }
+      const toCheck = transcriptAccumRef.current;
+      if (!toCheck) return;
+      const cmd = matchCommand(toCheck);
+      if (debugRef.current) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
+      if (cmd) {
+        const now = Date.now();
+        if (now - lastCommandTimeRef.current < 2500) return;
+        lastCommandTimeRef.current = now;
+        transcriptAccumRef.current = '';
+        if (debugRef.current) console.log('[voice] triggering', cmd);
+        onCommandRef.current?.(cmd);
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      if (debugRef.current) console.log('[voice] error', event.error);
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        setError(event.error);
+      }
+    };
+
+    recognition.onend = () => {
+      if (!activeRef.current) return;
+      if (debugRef.current) console.log('[voice] onend – restarting…');
+      recognitionRef.current = null;
+      setTimeout(() => {
+        if (!activeRef.current) return;
+        const next = createAndStartRecognition();
+        if (next) {
+          recognitionRef.current = next;
+          next.start();
+        } else {
+          setListening(false);
+        }
+      }, 150);
+    };
+
+    return recognition;
+  }, []);
+
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SR) {
@@ -72,75 +136,21 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     recognitionRef.current?.abort();
     setError(null);
     activeRef.current = true;
-    const recognition = new SR();
-    recognitionRef.current = recognition;
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
-
-    const debug = typeof window !== 'undefined' && (window.location.search.includes('debug=1') || localStorage.getItem('scrabble-voice-debug') === '1');
-    if (debug) console.log('[voice] Debug ON – recognition starting. Speak to see transcripts.');
-
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      if (!activeRef.current) return;
-      let chunk = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const result = event.results[i];
-        const t = (result[0].transcript || '').trim();
-        chunk += t + ' ';
-        if (debug) console.log('[voice]', result.isFinal ? 'final' : 'interim', t ? JSON.stringify(t) : '(empty)');
-      }
-      transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
-      // Keep only last ~150 chars to avoid unbounded growth; mobile often splits "your turn" across events
-      if (transcriptAccumRef.current.length > 150) {
-        transcriptAccumRef.current = transcriptAccumRef.current.slice(-150);
-      }
-      const toCheck = transcriptAccumRef.current;
-      if (!toCheck) return;
-      const cmd = matchCommand(toCheck);
-      if (debug) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
-      if (cmd) {
-        const now = Date.now();
-        if (now - lastCommandTimeRef.current < 2500) return;
-        lastCommandTimeRef.current = now;
-        transcriptAccumRef.current = '';
-        if (debug) console.log('[voice] triggering', cmd);
-        onCommandRef.current?.(cmd);
-      }
-    };
-
-    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-      if (debug) console.log('[voice] error', event.error);
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        setError(event.error);
-      }
-    };
-
-    recognition.onend = () => {
-      if (debug) console.log('[voice] onend – recognition stopped, will restart if still active');
-      setListening(false);
-      if (activeRef.current) {
-        // Brief delay before restart—helps iOS Safari avoid rapid restart issues
-        setTimeout(() => {
-          if (!activeRef.current || !recognitionRef.current) return;
-          try {
-            recognition.start();
-            setListening(true);
-          } catch {
-            // Ignore restart errors
-          }
-        }, 100);
-      }
-    };
-
     transcriptAccumRef.current = '';
-    try {
-      recognition.start();
-      setListening(true);
-    } catch (e) {
-      setError('Could not start recognition');
+    if (debugRef.current) console.log('[voice] Debug ON – recognition starting. Speak to see transcripts.');
+
+    const recognition = createAndStartRecognition();
+    if (recognition) {
+      recognitionRef.current = recognition;
+      try {
+        recognition.start();
+        setListening(true);
+      } catch (e) {
+        setError('Could not start recognition');
+        setListening(false);
+      }
     }
-  }, []);
+  }, [createAndStartRecognition]);
 
   const stopListening = useCallback(() => {
     activeRef.current = false;
