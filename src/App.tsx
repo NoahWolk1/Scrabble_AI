@@ -343,14 +343,25 @@ function App() {
               </div>
             ) : (
               <>
-                <VoiceCaptureTrigger
-                  active={_currentPlayer === 'human' && !gameOver && !recognizing}
-                  onCapture={() => cameraRef.current?.capture()}
-                />
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <VoiceCaptureTrigger
+                    active={_currentPlayer === 'human' && !gameOver && !recognizing}
+                    onCapture={() => cameraRef.current?.capture()}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.vibrate) navigator.vibrate(30);
+                      cameraRef.current?.capture();
+                    }}
+                    className="flex-1 py-3 px-4 rounded-xl font-medium touch-manipulation bg-amber-600 hover:bg-amber-700 text-white min-h-[48px]"
+                  >
+                    Capture board
+                  </button>
+                </div>
                 <CameraView
                   ref={cameraRef}
                   stream={stream}
-                  showCaptureButton
                   onCapture={handleBoardImage}
                 />
                 <div className="flex gap-2">
@@ -389,7 +400,7 @@ function App() {
                 </div>
                 {_currentPlayer === 'human' && !gameOver && !recognizing && (
                   <p className="text-stone-500 text-center text-sm">
-                    Make your move, then say &quot;your turn&quot; or tap Capture.
+                    Make your move, then say &quot;your turn&quot; or &quot;capture&quot;—or tap Capture board. Voice not working? Add <code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">?debug=1</code> to the URL and check the console.
                   </p>
                 )}
               </>

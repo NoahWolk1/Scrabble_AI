@@ -31,12 +31,18 @@ interface SpeechRecognition extends EventTarget {
 export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | null;
 
 function matchCommand(transcript: string): VoiceCommand {
-  const t = transcript.toLowerCase();
-  if (/\b(your turn|capture|done|i'm done|i am done|finished)\b/.test(t)) return 'your_turn';
+  const t = transcript.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  // Flexible match for capture triggers (mobile transcription varies)
+  if (/\b(your\s*turn|you\s*re\s*turn|you\s*turn|ur\s*turn)\b/.test(t)) return 'your_turn';
+  if (/\bcapture\b/.test(t)) return 'your_turn';
+  if (/\b(done|finished)\b/.test(t)) return 'your_turn';
+  if (/\b(i\s*am\s*done|im\s*done)\b/.test(t)) return 'your_turn';
+  if (/\btake\s*(?:a\s*)?(?:picture|photo)\b/.test(t)) return 'your_turn';
+  if (/\bok(?:ay)?\s*capture\b/.test(t)) return 'your_turn';
   if (/\bplay\b/.test(t)) return 'play';
   if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
   if (/\bchallenge\b/.test(t)) return 'challenge';
-  if (/\bmy turn\b/.test(t)) return 'my_turn';
+  if (/\bmy\s*turn\b/.test(t)) return 'my_turn';
   if (/\bsuggest\b/.test(t) || /\bhint\b/.test(t)) return 'suggest';
   return null;
 }
@@ -48,6 +54,8 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const activeRef = useRef(false);
   const onCommandRef = useRef(onCommand);
+  const lastCommandTimeRef = useRef(0);
+  const transcriptAccumRef = useRef('');
   onCommandRef.current = onCommand;
 
   useEffect(() => {
@@ -70,13 +78,34 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     recognition.interimResults = true;
     recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
 
+    const debug = typeof window !== 'undefined' && (window.location.search.includes('debug=1') || localStorage.getItem('scrabble-voice-debug') === '1');
+
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (!activeRef.current) return;
-      const last = event.results.length - 1;
-      const transcript = event.results[last][0].transcript.trim();
-      if (!event.results[last].isFinal) return;
-      const cmd = matchCommand(transcript);
-      if (cmd) onCommandRef.current?.(cmd);
+      let chunk = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const t = (result[0].transcript || '').trim();
+        chunk += t + ' ';
+        if (debug && t) console.log('[voice]', result.isFinal ? 'final' : 'interim', JSON.stringify(t));
+      }
+      transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
+      // Keep only last ~150 chars to avoid unbounded growth; mobile often splits "your turn" across events
+      if (transcriptAccumRef.current.length > 150) {
+        transcriptAccumRef.current = transcriptAccumRef.current.slice(-150);
+      }
+      const toCheck = transcriptAccumRef.current;
+      if (!toCheck) return;
+      const cmd = matchCommand(toCheck);
+      if (debug && toCheck) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
+      if (cmd) {
+        const now = Date.now();
+        if (now - lastCommandTimeRef.current < 2500) return;
+        lastCommandTimeRef.current = now;
+        transcriptAccumRef.current = '';
+        if (debug) console.log('[voice] triggering', cmd);
+        onCommandRef.current?.(cmd);
+      }
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -88,15 +117,20 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     recognition.onend = () => {
       setListening(false);
       if (activeRef.current) {
-        try {
-          recognition.start();
-          setListening(true);
-        } catch {
-          // Ignore restart errors
-        }
+        // Brief delay before restart—helps iOS Safari avoid rapid restart issues
+        setTimeout(() => {
+          if (!activeRef.current || !recognitionRef.current) return;
+          try {
+            recognition.start();
+            setListening(true);
+          } catch {
+            // Ignore restart errors
+          }
+        }, 100);
       }
     };
 
+    transcriptAccumRef.current = '';
     try {
       recognition.start();
       setListening(true);
@@ -107,6 +141,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
 
   const stopListening = useCallback(() => {
     activeRef.current = false;
+    transcriptAccumRef.current = '';
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
