@@ -16,6 +16,7 @@ import { prepareImageForRecognition } from './cv/imageUtils';
 function App() {
   const {
     board,
+    humanRack,
     aiRack,
     scores,
     trie,
@@ -119,6 +120,7 @@ function App() {
     }
   }, [_currentPlayer, gameOver, trie, playAIMove]);
 
+  const humanTurnRef = useRef(false);
   useEffect(() => {
     if (lastAIMove && lastAIMove !== lastAIMoveRef.current) {
       lastAIMoveRef.current = lastAIMove;
@@ -130,6 +132,18 @@ function App() {
       }
     }
   }, [lastAIMove]);
+
+  useEffect(() => {
+    if (_currentPlayer === 'human' && !gameOver && humanTurnRef.current === false) {
+      humanTurnRef.current = true;
+      if (humanRack.length > 0) {
+        const letters = humanRack.map((c) => (c === ' ' ? 'blank' : c)).join(', ');
+        speak(`Your letters are ${letters}.`);
+      }
+    } else if (_currentPlayer !== 'human') {
+      humanTurnRef.current = false;
+    }
+  }, [_currentPlayer, gameOver, humanRack]);
 
   useEffect(() => {
     if (_currentPlayer === 'human' && !gameOver && !stream) {
@@ -184,6 +198,22 @@ function App() {
               onCellClick={(row, col) => setEditingCell({ row, col })}
             />
           </div>
+
+          {humanRack.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-stone-600 dark:text-stone-400">Your letters</p>
+              <Rack letters={humanRack} />
+            </div>
+          )}
+
+          {lastAIMove && !lastAIMove.passed && (
+            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/30 px-4 py-3 border border-amber-200 dark:border-amber-800">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
+                AI played <span className="font-bold">{lastAIMove.word}</span> for {lastAIMove.score} points
+              </p>
+            </div>
+          )}
+
           {editingCell && (
             <>
               <div
