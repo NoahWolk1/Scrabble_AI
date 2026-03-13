@@ -42,10 +42,10 @@ export function VoiceCaptureTrigger({ onCapture, active, requireTapToStart = tru
           if (navigator.vibrate) navigator.vibrate(30);
           listening ? stopListening() : startListening();
         }}
-        className={`w-full py-3 px-4 rounded-xl font-medium touch-manipulation ${
+        className={`w-full py-3 px-4 rounded-xl font-semibold touch-manipulation transition-all ${
           listening
-            ? 'bg-green-600 hover:bg-green-700 text-white'
-            : 'bg-stone-300 dark:bg-stone-600 hover:bg-stone-400 dark:hover:bg-stone-500 text-stone-900 dark:text-white'
+            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
+            : 'bg-stone-200 dark:bg-stone-600 hover:bg-stone-300 dark:hover:bg-stone-500 text-stone-800 dark:text-white border border-stone-300/50 dark:border-stone-500/50'
         }`}
       >
         {listening ? 'Listening' : 'Listen'}

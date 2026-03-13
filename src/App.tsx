@@ -156,12 +156,15 @@ function App() {
   }, [_currentPlayer, gameOver, startCamera, stopCamera, stream]);
 
   const scrollClass =
-    'h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-none touch-pan-y bg-stone-100 dark:bg-stone-900';
+    'h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-none touch-pan-y bg-stone-100/95 dark:bg-stone-900/95';
 
   if (!trie) {
     return (
       <div className={`${scrollClass} flex items-center justify-center`}>
-        <p className="text-lg">Loading dictionary...</p>
+        <div className="flex flex-col items-center gap-4">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" />
+          <p className="text-stone-600 dark:text-stone-400">Loading dictionary...</p>
+        </div>
       </div>
     );
   }
@@ -169,32 +172,38 @@ function App() {
   return (
     <div className={`${scrollClass} pb-24`}>
       <div className="max-w-xl mx-auto px-4">
-        <h1 className="text-2xl font-bold text-center py-4 text-stone-800 dark:text-stone-100">
-          Scrabble AI
-        </h1>
+        <header className="text-center py-5">
+          <h1 className="font-display text-3xl font-bold text-stone-800 dark:text-stone-100 tracking-tight">
+            Scrabble AI
+          </h1>
+        </header>
 
-        <div className="space-y-4">
-          {/* Game section */}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="text-lg font-medium">
-              <span>You: {scores.human}</span>
-              <span className="ml-4">AI: {scores.ai}</span>
+        <div className="space-y-5">
+          {/* Score bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white dark:bg-stone-800/80 px-4 py-3 shadow-card dark:shadow-card-dark border border-stone-200/60 dark:border-stone-700/60">
+            <div className="flex items-baseline gap-6">
+              <span className="text-stone-700 dark:text-stone-300">
+                <span className="font-semibold text-amber-700 dark:text-amber-400">You</span>
+                <span className="ml-1.5 text-lg font-bold tabular-nums">{scores.human}</span>
+              </span>
+              <span className="text-stone-400">–</span>
+              <span className="text-stone-700 dark:text-stone-300">
+                <span className="font-semibold text-stone-500 dark:text-stone-400">AI</span>
+                <span className="ml-1.5 text-lg font-bold tabular-nums">{scores.ai}</span>
+              </span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-stone-500 dark:text-stone-400">Difficulty:</span>
-              <select
-                value={aiDifficulty}
-                onChange={(e) => setAIDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
-                className="text-sm rounded-lg border border-stone-300 dark:border-stone-600 bg-white dark:bg-stone-800 px-2 py-1"
-              >
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-              </select>
-            </div>
+            <select
+              value={aiDifficulty}
+              onChange={(e) => setAIDifficulty(e.target.value as 'easy' | 'medium' | 'hard')}
+              className="text-sm rounded-xl border border-stone-200 dark:border-stone-600 bg-stone-50 dark:bg-stone-800 px-3 py-1.5 text-stone-700 dark:text-stone-300 focus:ring-2 focus:ring-amber-400/50 focus:outline-none"
+            >
+              <option value="easy">Easy</option>
+              <option value="medium">Medium</option>
+              <option value="hard">Hard</option>
+            </select>
           </div>
 
-          <div className="flex justify-center overflow-x-auto -mx-4 px-4">
+          <div className="flex justify-center overflow-x-auto -mx-4 px-4 py-1">
             <Board
               board={board}
               onCellClick={(row, col) => setEditingCell({ row, col })}
@@ -202,16 +211,16 @@ function App() {
           </div>
 
           {humanRack.length > 0 && (
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-stone-600 dark:text-stone-400">Your letters</p>
+            <div className="rounded-2xl bg-white/80 dark:bg-stone-800/60 px-4 py-3 shadow-card dark:shadow-card-dark border border-stone-200/60 dark:border-stone-700/60">
+              <p className="text-xs font-medium uppercase tracking-wider text-stone-500 dark:text-stone-400 mb-2">Your letters</p>
               <Rack letters={humanRack} />
             </div>
           )}
 
           {lastAIMove && !lastAIMove.passed && (
-            <div className="rounded-lg bg-amber-50 dark:bg-amber-900/30 px-4 py-3 border border-amber-200 dark:border-amber-800">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                AI played <span className="font-bold">{lastAIMove.word}</span> for {lastAIMove.score} points
+            <div className="rounded-2xl bg-amber-50/90 dark:bg-amber-900/20 px-4 py-3 border border-amber-200/80 dark:border-amber-800/50">
+              <p className="text-sm text-amber-800 dark:text-amber-200">
+                AI played <span className="font-bold">{lastAIMove.word}</span> for {lastAIMove.score} pts
               </p>
             </div>
           )}
@@ -219,7 +228,7 @@ function App() {
           {editingCell && (
             <>
               <div
-                className="fixed inset-0 bg-black/40 z-40"
+                className="fixed inset-0 bg-black/50 backdrop-blur-[2px] z-40 transition-opacity"
                 aria-hidden
                 onClick={() => setEditingCell(null)}
               />
@@ -233,11 +242,11 @@ function App() {
             </>
           )}
 
-          <details className="group">
-            <summary className="cursor-pointer text-sm text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300 list-none">
+          <details className="group rounded-2xl bg-stone-100/80 dark:bg-stone-800/40 border border-stone-200/60 dark:border-stone-700/60 overflow-hidden">
+            <summary className="cursor-pointer px-4 py-2.5 text-sm text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300 list-none select-none">
               Spoiler: AI rack
             </summary>
-            <div className="mt-2 pl-0">
+            <div className="px-4 pb-3 pt-0">
               <Rack letters={aiRack} label="AI rack" />
             </div>
           </details>
@@ -247,8 +256,8 @@ function App() {
           </div>
 
           {gameOver && (
-            <div className="text-center py-4">
-              <p className="text-xl font-bold">
+            <div className="text-center py-6 px-4 rounded-2xl bg-white/90 dark:bg-stone-800/80 shadow-card dark:shadow-card-dark border border-stone-200/60 dark:border-stone-700/60">
+              <p className="font-display text-2xl font-bold text-stone-800 dark:text-stone-100">
                 {scores.human > scores.ai
                   ? 'You win!'
                   : scores.ai > scores.human
@@ -258,7 +267,7 @@ function App() {
               <button
                 type="button"
                 onClick={() => initGame(trie)}
-                className="mt-4 py-3 px-6 bg-green-600 hover:bg-green-700 text-white rounded-xl font-medium min-h-[48px] touch-manipulation"
+                className="mt-5 py-3 px-8 bg-green-600 hover:bg-green-700 active:bg-green-800 text-white rounded-xl font-semibold min-h-[48px] touch-manipulation shadow-md hover:shadow-lg transition-shadow"
               >
                 New game
               </button>
@@ -266,30 +275,30 @@ function App() {
           )}
 
           {/* Camera section */}
-          <div className="border-t border-stone-300 dark:border-stone-600 pt-4 mt-6">
-            <div className="flex flex-wrap gap-4 py-2">
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+          <div className="rounded-2xl bg-white/80 dark:bg-stone-800/60 p-4 mt-6 shadow-card dark:shadow-card-dark border border-stone-200/60 dark:border-stone-700/60">
+            <div className="flex flex-wrap gap-5 py-2 mb-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 transition-colors">
                 <input
                   type="checkbox"
                   checked={validateRack}
                   onChange={(e) => setValidateRack(e.target.checked)}
-                  className="rounded"
+                  className="rounded border-stone-300 text-amber-600 focus:ring-amber-400"
                 />
                 <span>Validate rack</span>
               </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <label className="flex items-center gap-2 text-sm cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 transition-colors">
                 <input
                   type="checkbox"
                   checked={useGeminiFix}
                   onChange={(e) => setUseGeminiFix(e.target.checked)}
-                  className="rounded"
+                  className="rounded border-stone-300 text-amber-600 focus:ring-amber-400"
                 />
                 <span>AI fix (Gemini)</span>
               </label>
             </div>
             {!stream ? (
               <div className="space-y-4">
-                <p className="text-stone-600 dark:text-stone-400 text-center">
+                <p className="text-stone-600 dark:text-stone-400 text-center text-sm leading-relaxed">
                   {_currentPlayer === 'human' && !gameOver
                     ? "Your turn. Capture your rack first if needed, then make your move on the board and capture."
                     : "Point at the board or upload a photo. Good lighting, top-down view."}
@@ -302,11 +311,11 @@ function App() {
                       startCamera();
                     }}
                     disabled={loading}
-                    className="w-full py-4 px-6 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-medium min-h-[56px] touch-manipulation"
+                    className="w-full py-4 px-6 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white rounded-xl font-semibold min-h-[56px] touch-manipulation shadow-md hover:shadow-lg transition-all"
                   >
                     {loading ? 'Starting camera...' : 'Start camera'}
                   </button>
-                  <label className="w-full py-4 px-6 bg-stone-300 dark:bg-stone-600 hover:bg-stone-400 dark:hover:bg-stone-500 text-stone-900 dark:text-white rounded-xl font-medium min-h-[56px] touch-manipulation flex items-center justify-center cursor-pointer">
+                  <label className="w-full py-4 px-6 bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-800 dark:text-stone-200 rounded-xl font-medium min-h-[56px] touch-manipulation flex items-center justify-center cursor-pointer border border-stone-300/50 dark:border-stone-600/50 transition-colors">
                     Upload board image
                     <input
                       type="file"
@@ -322,7 +331,7 @@ function App() {
                       }}
                     />
                   </label>
-                  <label className="w-full py-3 px-6 bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 text-stone-800 dark:text-stone-200 rounded-xl font-medium min-h-[48px] touch-manipulation flex items-center justify-center cursor-pointer border border-stone-300 dark:border-stone-600">
+                  <label className="w-full py-3 px-6 bg-stone-100 dark:bg-stone-700/80 hover:bg-stone-200 dark:hover:bg-stone-600 text-stone-700 dark:text-stone-300 rounded-xl font-medium min-h-[48px] touch-manipulation flex items-center justify-center cursor-pointer border border-stone-300/50 dark:border-stone-600/50 transition-colors">
                     Upload rack image
                     <input
                       type="file"
@@ -359,7 +368,7 @@ function App() {
                       if (!recognizing) cameraRef.current?.capture();
                     }}
                     disabled={recognizing}
-                    className="flex-1 py-3 px-4 rounded-xl font-medium touch-manipulation bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none text-white min-h-[48px]"
+                    className="flex-1 py-3 px-4 rounded-xl font-semibold touch-manipulation bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none text-white min-h-[48px] shadow-md hover:shadow-lg transition-all"
                   >
                     Capture board
                   </button>
@@ -370,7 +379,7 @@ function App() {
                   onCapture={handleBoardImage}
                 />
                 <div className="flex gap-2">
-                  <label className="flex-1 py-3 px-4 bg-stone-300 dark:bg-stone-600 hover:bg-stone-400 dark:hover:bg-stone-500 rounded-xl font-medium text-center cursor-pointer touch-manipulation">
+                  <label className="flex-1 py-3 px-4 bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 rounded-xl font-medium text-center cursor-pointer touch-manipulation border border-stone-300/50 dark:border-stone-600/50 transition-colors">
                     Upload board
                     <input
                       type="file"
@@ -386,7 +395,7 @@ function App() {
                       }}
                     />
                   </label>
-                  <label className="flex-1 py-3 px-4 bg-stone-200 dark:bg-stone-700 hover:bg-stone-300 dark:hover:bg-stone-600 rounded-xl font-medium text-center cursor-pointer touch-manipulation">
+                  <label className="flex-1 py-3 px-4 bg-stone-100 dark:bg-stone-700/80 hover:bg-stone-200 dark:hover:bg-stone-600 rounded-xl font-medium text-center cursor-pointer touch-manipulation border border-stone-300/50 dark:border-stone-600/50 transition-colors">
                     Upload rack
                     <input
                       type="file"
@@ -404,7 +413,7 @@ function App() {
                   </label>
                 </div>
                 {_currentPlayer === 'human' && !gameOver && !recognizing && (
-                  <p className="text-stone-500 text-center text-sm">
+                  <p className="text-stone-500 dark:text-stone-400 text-center text-sm leading-relaxed">
                     Make your move, then say &quot;your turn&quot;, &quot;capture&quot;, &quot;done&quot;, &quot;finish&quot;, &quot;go&quot;, etc.—or tap Capture board.
                   </p>
                 )}
@@ -413,11 +422,13 @@ function App() {
           </div>
 
           {recognizing && (
-            <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
-              <div className="flex flex-col items-center gap-4 rounded-2xl bg-stone-800 px-8 py-6 shadow-xl">
-                <div className="h-10 w-10 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
-                <p className="text-lg font-medium text-white">Recognizing...</p>
-                <p className="text-sm text-stone-400">This may take a few seconds</p>
+            <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/50 backdrop-blur-md transition-opacity">
+              <div className="flex flex-col items-center gap-5 rounded-2xl bg-stone-800/95 px-10 py-8 shadow-2xl border border-stone-700/50">
+                <div className="h-12 w-12 animate-spin rounded-full border-4 border-amber-400/30 border-t-amber-400" />
+                <div className="text-center">
+                  <p className="text-lg font-semibold text-white">Recognizing...</p>
+                  <p className="text-sm text-stone-400 mt-0.5">This may take a few seconds</p>
+                </div>
               </div>
             </div>
           )}
@@ -425,13 +436,13 @@ function App() {
           {toast && (
             <div
               role="alert"
-              className="fixed bottom-20 left-4 right-4 z-50 mx-auto max-w-xl px-4 py-3 bg-amber-600 text-white rounded-xl shadow-lg flex items-center justify-between gap-3"
+              className="fixed bottom-20 left-4 right-4 z-50 mx-auto max-w-xl px-4 py-3 bg-amber-600 text-white rounded-2xl shadow-xl flex items-center justify-between gap-3"
             >
               <p className="text-sm flex-1">{toast}</p>
               <button
                 type="button"
                 onClick={() => setToast(null)}
-                className="shrink-0 px-3 py-1 bg-white/20 rounded-lg text-sm font-medium touch-manipulation"
+                className="shrink-0 px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg text-sm font-medium touch-manipulation transition-colors"
               >
                 Dismiss
               </button>

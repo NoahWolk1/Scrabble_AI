@@ -42,7 +42,6 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
       h = Math.round(h * scale);
     }
 
-    // Preview uses scaleX(-1) so board faces player; capture is flipped to match for recognition API
     if (needsRotation) {
       const tmp = document.createElement('canvas');
       tmp.width = vw;
@@ -62,22 +61,10 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         canvas.height = h;
         ctx.drawImage(out, 0, 0);
       }
-      // Flip to match mirrored preview (board was backwards for recognition)
-      const flipped = document.createElement('canvas');
-      flipped.width = canvas.width;
-      flipped.height = canvas.height;
-      flipped.getContext('2d')!.scale(-1, 1);
-      flipped.getContext('2d')!.drawImage(canvas, 0, 0, canvas.width, canvas.height, -canvas.width, 0, canvas.width, canvas.height);
-      canvas.width = flipped.width;
-      canvas.height = flipped.height;
-      ctx.drawImage(flipped, 0, 0);
     } else {
       canvas.width = w;
       canvas.height = h;
-      ctx.save();
-      ctx.scale(-1, 1);
-      ctx.drawImage(video, 0, 0, vw, vh, -w, 0, w, h);
-      ctx.restore();
+      ctx.drawImage(video, 0, 0, w, h);
     }
     canvas.toBlob((blob) => blob && onCapture?.(blob), 'image/jpeg', 0.92);
   };
@@ -91,7 +78,7 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   }, [stream]);
 
   return (
-    <div className="relative aspect-square max-w-md mx-auto bg-stone-800 rounded-xl overflow-hidden isolate">
+    <div className="relative aspect-square max-w-md mx-auto bg-stone-900 rounded-2xl overflow-hidden isolate shadow-xl border border-stone-700/50">
       <video
         ref={videoRef}
         autoPlay

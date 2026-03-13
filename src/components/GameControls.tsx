@@ -119,8 +119,8 @@ export function GameControls({ onError }: GameControlsProps) {
   };
 
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-gray-600 dark:text-gray-400 min-h-[2rem]">{status}</p>
+    <div className="flex flex-col gap-4 rounded-2xl bg-white/60 dark:bg-stone-800/40 px-4 py-3 border border-stone-200/60 dark:border-stone-700/60">
+      <p className="text-sm text-stone-600 dark:text-stone-400 min-h-[2rem]">{status}</p>
 
       {canPlay && (
         <div className="space-y-3">
@@ -132,7 +132,7 @@ export function GameControls({ onError }: GameControlsProps) {
                 handleSuggest();
               }}
               disabled={suggestLoading}
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg font-medium transition min-h-[48px] touch-manipulation"
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-semibold min-h-[48px] touch-manipulation shadow-md hover:shadow-lg transition-all"
             >
               {suggestLoading ? 'Loading...' : 'Suggest moves'}
             </button>
@@ -142,7 +142,7 @@ export function GameControls({ onError }: GameControlsProps) {
                 if (navigator.vibrate) navigator.vibrate(30);
                 handlePass();
               }}
-              className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition min-h-[48px] touch-manipulation"
+              className="px-5 py-2.5 bg-stone-600 hover:bg-stone-700 text-white rounded-xl font-semibold min-h-[48px] touch-manipulation shadow-md hover:shadow-lg transition-all"
             >
               Pass
             </button>
@@ -152,17 +152,17 @@ export function GameControls({ onError }: GameControlsProps) {
 
       {suggestions.length > 0 && (
         <div className="space-y-2">
-          <p className="text-sm font-medium">Top moves (click to play):</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-stone-500 dark:text-stone-400">Top moves (tap to play)</p>
           <div className="flex flex-wrap gap-2">
             {suggestions.map((s, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => handlePlaySuggestion(s)}
-                className="px-3 py-2 bg-amber-100 dark:bg-amber-900 hover:bg-amber-200 dark:hover:bg-amber-800 rounded-lg text-left transition"
+                className="px-4 py-2.5 bg-amber-50 dark:bg-amber-900/40 hover:bg-amber-100 dark:hover:bg-amber-800/60 rounded-xl text-left transition-all border border-amber-200/60 dark:border-amber-800/40"
               >
-                <span className="font-bold">{s.word}</span>{' '}
-                <span className="text-amber-700">({s.score} pts)</span>
+                <span className="font-bold text-stone-900 dark:text-white">{s.word}</span>{' '}
+                <span className="text-amber-700 dark:text-amber-400">({s.score} pts)</span>
               </button>
             ))}
           </div>

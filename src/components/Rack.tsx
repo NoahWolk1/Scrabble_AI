@@ -7,11 +7,11 @@ interface RackProps {
 
 export function Rack({ letters, selected = [], onTileClick, label }: RackProps) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex flex-col gap-2">
       {label && (
-        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{label}</span>
+        <span className="text-xs font-medium uppercase tracking-wider text-stone-500 dark:text-stone-400">{label}</span>
       )}
-      <div className="flex gap-1 flex-wrap justify-center">
+      <div className="flex gap-1.5 flex-wrap justify-center">
         {letters.map((letter, i) => (
           <button
             key={`${letter}-${i}`}
@@ -19,10 +19,11 @@ export function Rack({ letters, selected = [], onTileClick, label }: RackProps) 
             onClick={() => onTileClick?.(i)}
             className={`
               w-10 h-12 flex items-center justify-center text-xl font-bold
-              bg-amber-100 dark:bg-amber-900 border-2 border-amber-700 rounded-lg
-              text-gray-900 dark:text-white shadow
-              ${selected.includes(i) ? 'ring-2 ring-blue-500 scale-105' : ''}
-              ${onTileClick ? 'cursor-pointer hover:bg-amber-200' : 'cursor-default'}
+              bg-amber-50 dark:bg-amber-900/60 border-2 border-amber-600/70 rounded-lg
+              text-stone-900 dark:text-white shadow-md
+              transition-all duration-150
+              ${selected.includes(i) ? 'ring-2 ring-amber-500 scale-105 shadow-lg' : ''}
+              ${onTileClick ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-800/80 hover:shadow-lg' : 'cursor-default'}
             `}
           >
             {letter === ' ' ? '?' : letter}

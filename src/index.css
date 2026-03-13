@@ -1,13 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: light dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Single scroll container to reduce jitter on trackpad and touch */
@@ -23,9 +24,23 @@ body {
   min-height: 100vh;
   min-height: -webkit-fill-available;
   overflow: hidden;
+  background: #f5f3ef;
+}
+
+.dark body {
+  background: #1c1917;
 }
 
 #root {
   height: 100%;
   min-height: 100%;
+}
+
+/* Smooth transitions for interactive elements */
+button, label[role="button"], [role="button"] {
+  transition: opacity 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
+}
+
+button:active:not(:disabled), label:active {
+  transform: scale(0.98);
 }
