@@ -42,6 +42,8 @@ function App() {
   const applyHumanMoveFromBoardImage = useGameStore((s) => s.applyHumanMoveFromBoardImage);
   const lastAIMoveRef = useRef<unknown>(null);
   const cameraRef = useRef<CameraViewRef>(null);
+  const recognizingRef = useRef(recognizing);
+  recognizingRef.current = recognizing;
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -345,16 +347,19 @@ function App() {
               <>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <VoiceCaptureTrigger
-                    active={_currentPlayer === 'human' && !gameOver && !recognizing}
-                    onCapture={() => cameraRef.current?.capture()}
+                    active={_currentPlayer === 'human' && !gameOver}
+                    onCapture={() => {
+                      if (!recognizingRef.current) cameraRef.current?.capture();
+                    }}
                   />
                   <button
                     type="button"
                     onClick={() => {
                       if (navigator.vibrate) navigator.vibrate(30);
-                      cameraRef.current?.capture();
+                      if (!recognizing) cameraRef.current?.capture();
                     }}
-                    className="flex-1 py-3 px-4 rounded-xl font-medium touch-manipulation bg-amber-600 hover:bg-amber-700 text-white min-h-[48px]"
+                    disabled={recognizing}
+                    className="flex-1 py-3 px-4 rounded-xl font-medium touch-manipulation bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none text-white min-h-[48px]"
                   >
                     Capture board
                   </button>
