@@ -18,7 +18,11 @@ interface SuggestedMove {
   tiles: { row: number; col: number; letter: string; isBlank?: boolean }[];
 }
 
-export function GameControls() {
+interface GameControlsProps {
+  onError?: (message: string) => void;
+}
+
+export function GameControls({ onError }: GameControlsProps) {
   const {
     board,
     humanRack,
@@ -45,9 +49,9 @@ export function GameControls() {
       const boardStr = boardToApiFormat(board.toArray());
       const rackStr = rackToApiFormat(humanRack);
       const res = await getMovesFromApi(rackStr, boardStr);
+      let valid: SuggestedMove[] = [];
       if (res.status === 'OK' && res.moves?.length > 0) {
         const boardArr = board.toArray();
-        const valid: SuggestedMove[] = [];
         for (const moveStr of res.moves) {
           if (valid.length >= 5) break;
           const parsed = parseScrabblecamMove(moveStr, boardArr);
@@ -62,10 +66,10 @@ export function GameControls() {
             tiles: parsed.tiles,
           });
         }
-        setSuggestions(valid);
-      } else if (humanRack.length > 0) {
+      }
+      if (valid.length === 0 && humanRack.length > 0) {
         const moves = generateMoves(board, humanRack, trie, isFirstMove);
-        const fallback = moves
+        valid = moves
           .sort((a, b) => b.score - a.score)
           .filter((m) => validateMove(m.tiles))
           .slice(0, 5)
@@ -77,8 +81,8 @@ export function GameControls() {
             direction: m.direction === 'horizontal' ? 'H' : 'V',
             tiles: m.tiles,
           }));
-        setSuggestions(fallback);
       }
+      setSuggestions(valid);
     } catch (err) {
       console.warn('Scrabblecam suggest failed, using local:', err);
       if (humanRack.length > 0) {
@@ -106,8 +110,8 @@ export function GameControls() {
     const result = playHumanMove(s.tiles);
     if (result.success) {
       setSuggestions([]);
-    } else if (result.message) {
-      alert(result.message);
+    } else if (result.message && onError) {
+      onError(result.message);
     }
   };
 

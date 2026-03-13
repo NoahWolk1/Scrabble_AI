@@ -211,7 +211,7 @@ function App() {
           </details>
 
           <div className="space-y-4">
-            <GameControls />
+            <GameControls onError={showToast} />
           </div>
 
           {gameOver && (
@@ -357,9 +357,6 @@ function App() {
                     />
                   </label>
                 </div>
-                {recognizing && (
-                  <p className="text-amber-600 text-center">Recognizing board...</p>
-                )}
                 {_currentPlayer === 'human' && !gameOver && !recognizing && (
                   <p className="text-stone-500 text-center text-sm">
                     Make your move, then say &quot;your turn&quot; or tap Capture.
@@ -368,6 +365,16 @@ function App() {
               </>
             )}
           </div>
+
+          {recognizing && (
+            <div className="fixed inset-0 z-[60] flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+              <div className="flex flex-col items-center gap-4 rounded-2xl bg-stone-800 px-8 py-6 shadow-xl">
+                <div className="h-10 w-10 animate-spin rounded-full border-4 border-amber-500 border-t-transparent" />
+                <p className="text-lg font-medium text-white">Recognizing...</p>
+                <p className="text-sm text-stone-400">This may take a few seconds</p>
+              </div>
+            </div>
+          )}
 
           {toast && (
             <div
