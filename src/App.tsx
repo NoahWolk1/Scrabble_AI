@@ -4,9 +4,9 @@ import { LetterPicker } from './components/LetterPicker';
 import { Rack } from './components/Rack';
 import { GameControls } from './components/GameControls';
 import { CameraView, type CameraViewRef } from './components/CameraView';
+import { VoiceCaptureTrigger } from './components/VoiceCaptureTrigger';
 import { useGameStore } from './store/gameStore';
 import { useCamera } from './hooks/useCamera';
-import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { speak } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
 import { recognizeBoard } from './cv/BoardRecognizer';
@@ -34,14 +34,6 @@ function App() {
   } = useGameStore();
   const { stream, error, loading, startCamera, stopCamera } = useCamera();
   const [recognizing, setRecognizing] = useState(false);
-  const cameraRef = useRef<CameraViewRef>(null);
-  const captureActive = _currentPlayer === 'human' && !gameOver && !recognizing && !!stream;
-  const { supported: voiceSupported, listening, startListening, stopListening } = useSpeechRecognition((cmd) => {
-    if (cmd === 'your_turn') {
-      // Defer out of speech recognition callback—some browsers drop canvas/video access during it
-      requestAnimationFrame(() => setTimeout(() => cameraRef.current?.capture(), 0));
-    }
-  });
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [useGeminiFix, setUseGeminiFix] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
@@ -49,6 +41,7 @@ function App() {
   const setHumanRack = useGameStore((s) => s.setHumanRack);
   const applyHumanMoveFromBoardImage = useGameStore((s) => s.applyHumanMoveFromBoardImage);
   const lastAIMoveRef = useRef<unknown>(null);
+  const cameraRef = useRef<CameraViewRef>(null);
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -159,11 +152,6 @@ function App() {
       stopCamera();
     }
   }, [_currentPlayer, gameOver, startCamera, stopCamera, stream]);
-
-  useEffect(() => {
-    if (!captureActive || !voiceSupported) stopListening();
-    return () => stopListening();
-  }, [captureActive, voiceSupported, stopListening]);
 
   const scrollClass =
     'h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-none touch-pan-y bg-stone-100 dark:bg-stone-900';
@@ -355,21 +343,10 @@ function App() {
               </div>
             ) : (
               <>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (navigator.vibrate) navigator.vibrate(30);
-                    cameraRef.current?.capture();
-                    if (voiceSupported && captureActive) startListening();
-                  }}
-                  className={`w-full py-3 px-4 rounded-xl font-medium touch-manipulation min-h-[48px] ${
-                    listening
-                      ? 'bg-green-600 hover:bg-green-700 text-white'
-                      : 'bg-amber-600 hover:bg-amber-700 text-white'
-                  }`}
-                >
-                  {listening ? "Capture board • Listening for 'your turn'" : 'Capture board'}
-                </button>
+                <VoiceCaptureTrigger
+                  active={_currentPlayer === 'human' && !gameOver && !recognizing}
+                  onCapture={() => cameraRef.current?.capture()}
+                />
                 <CameraView
                   ref={cameraRef}
                   stream={stream}
@@ -411,7 +388,7 @@ function App() {
                 </div>
                 {_currentPlayer === 'human' && !gameOver && !recognizing && (
                   <p className="text-stone-500 text-center text-sm">
-                    Make your move, tap Capture board (this also starts voice), then say &quot;your turn&quot; or &quot;capture&quot; for hands-free. Debug: <code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">?debug=1</code>
+                    Make your move, then tap Listen and say &quot;your turn&quot; or &quot;capture&quot;. Voice not working? Add <code className="bg-stone-200 dark:bg-stone-700 px-1 rounded">?debug=1</code> to the URL and check the console.
                   </p>
                 )}
               </>
