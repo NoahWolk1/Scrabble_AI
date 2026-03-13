@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { generateMoves } from '../game/MoveGenerator';
-import { VoiceButton } from './VoiceButton';
 import {
   getMovesFromApi,
   boardToApiFormat,
@@ -148,14 +147,6 @@ export function GameControls({ onError }: GameControlsProps) {
               Pass
             </button>
           </div>
-          <VoiceButton
-            onCommand={(cmd) => {
-              if (cmd === 'suggest') handleSuggest();
-              if (cmd === 'pass') handlePass();
-              if (cmd === 'play' && suggestions.length > 0) handlePlaySuggestion(suggestions[0]);
-            }}
-            disabled={!canPlay}
-          />
         </div>
       )}
 

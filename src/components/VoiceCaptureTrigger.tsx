@@ -48,7 +48,7 @@ export function VoiceCaptureTrigger({ onCapture, active, requireTapToStart = tru
             : 'bg-stone-300 dark:bg-stone-600 hover:bg-stone-400 dark:hover:bg-stone-500 text-stone-900 dark:text-white'
         }`}
       >
-        {listening ? 'Listening…' : 'Listen'}
+        {listening ? 'Listening' : 'Listen'}
       </button>
     );
   }
