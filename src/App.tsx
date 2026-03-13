@@ -37,7 +37,10 @@ function App() {
   const cameraRef = useRef<CameraViewRef>(null);
   const captureActive = _currentPlayer === 'human' && !gameOver && !recognizing && !!stream;
   const { supported: voiceSupported, listening, startListening, stopListening } = useSpeechRecognition((cmd) => {
-    if (cmd === 'your_turn') cameraRef.current?.capture();
+    if (cmd === 'your_turn') {
+      // Defer out of speech recognition callback—some browsers drop canvas/video access during it
+      requestAnimationFrame(() => setTimeout(() => cameraRef.current?.capture(), 0));
+    }
   });
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [useGeminiFix, setUseGeminiFix] = useState(true);
