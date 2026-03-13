@@ -66,21 +66,44 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
   const debugRef = useRef(false);
   debugRef.current = typeof window !== 'undefined' && (window.location.search.includes('debug=1') || localStorage.getItem('scrabble-voice-debug') === '1');
 
+  const isSafari = typeof navigator !== 'undefined' && /Apple|Safari|iPhone|iPad|iPod/.test(navigator.userAgent);
+  const restartScheduledRef = useRef(false);
+  const createAndStartRecognitionRef = useRef<() => SpeechRecognition | null>(() => null);
+
   const createAndStartRecognition = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SR) return null;
     const recognition = new SR();
-    recognition.continuous = true;
+    recognition.continuous = !isSafari; // iOS Safari: continuous often stops after first result
     recognition.interimResults = true;
     recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
+
+    const doRestart = () => {
+      if (restartScheduledRef.current || !activeRef.current) return;
+      restartScheduledRef.current = true;
+      const delay = isSafari ? 250 : 150;
+      setTimeout(() => {
+        restartScheduledRef.current = false;
+        if (!activeRef.current) return;
+        const next = createAndStartRecognitionRef.current();
+        if (next) {
+          recognitionRef.current = next;
+          next.start();
+        } else {
+          setListening(false);
+        }
+      }, delay);
+    };
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (!activeRef.current) return;
       let chunk = '';
+      let hadFinal = false;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const t = (result[0].transcript || '').trim();
         chunk += t + ' ';
+        if (result.isFinal) hadFinal = true;
         if (debugRef.current) console.log('[voice]', result.isFinal ? 'final' : 'interim', t ? JSON.stringify(t) : '(empty)');
       }
       transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
@@ -99,6 +122,8 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
         if (debugRef.current) console.log('[voice] triggering', cmd);
         onCommandRef.current?.(cmd);
       }
+      // iOS Safari: onresult stops firing after first phrase—restart here
+      if (isSafari && hadFinal) doRestart();
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
@@ -112,20 +137,13 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       if (!activeRef.current) return;
       if (debugRef.current) console.log('[voice] onend – restarting…');
       recognitionRef.current = null;
-      setTimeout(() => {
-        if (!activeRef.current) return;
-        const next = createAndStartRecognition();
-        if (next) {
-          recognitionRef.current = next;
-          next.start();
-        } else {
-          setListening(false);
-        }
-      }, 150);
+      doRestart();
     };
 
     return recognition;
-  }, []);
+  }, [isSafari]);
+
+  createAndStartRecognitionRef.current = createAndStartRecognition;
 
   const startListening = useCallback(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -156,12 +174,21 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     activeRef.current = false;
     transcriptAccumRef.current = '';
     if (recognitionRef.current) {
+      const rec = recognitionRef.current;
+      recognitionRef.current = null;
       try {
-        recognitionRef.current.abort();
+        // Safari bug: mic keeps listening after stop—call start() before stop() to fix
+        if (typeof navigator !== 'undefined' && /Apple|Safari|iPhone|iPad|iPod/.test(navigator.userAgent)) {
+          try {
+            rec.start();
+          } catch {
+            // Ignore
+          }
+        }
+        rec.abort();
       } catch {
         // Ignore
       }
-      recognitionRef.current = null;
     }
     setListening(false);
   }, []);
