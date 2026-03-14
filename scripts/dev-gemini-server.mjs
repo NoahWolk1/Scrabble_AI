@@ -232,8 +232,58 @@ Output the tiles of the SINGLE word the player most likely played. Pick the most
 - If OCR misread a letter, correct it to form a valid word that fits the rack.
 - If multiple words are possible, choose the one that best fits the rack and board.
 
-Return JSON: { "tiles": [ { "letter": "A", "row": 7, "col": 7, "isBlank": false }, ... ] }
+Return ONLY this JSON format, nothing else:
+{"tiles":[{"letter":"A","row":7,"col":7,"isBlank":false}]}
 Use isBlank: true only for tiles that used a blank. Letter should be the letter the blank represents.`;
+
+function tryParseInferJson(str) {
+  const cleaned = str.replace(/^```json\s*|\s*```$/g, '').replace(/^[^{]*/, '').replace(/[^}]*$/, '').trim();
+  const parseAttempt = (s) => {
+    try {
+      const p = JSON.parse(s);
+      return p && typeof p === 'object' ? p : null;
+    } catch {
+      return null;
+    }
+  };
+
+  let parsed = parseAttempt(cleaned);
+  if (parsed) return parsed;
+
+  let repaired = cleaned;
+  const quoteCount = (repaired.match(/"/g) || []).length;
+  if (quoteCount % 2 === 1) repaired += '"';
+  const openBrace = (repaired.match(/\{/g) || []).length;
+  const closeBrace = (repaired.match(/\}/g) || []).length;
+  repaired += '}'.repeat(Math.max(0, openBrace - closeBrace));
+  parsed = parseAttempt(repaired);
+  if (parsed) return parsed;
+
+  const tilesMatch = repaired.match(/"tiles"\s*:\s*\[([\s\S]*)\]/);
+  if (tilesMatch) {
+    const inner = tilesMatch[1];
+    const objMatches = inner.match(/\{[^{}]*\}/g) || [];
+    const tiles = [];
+    for (const objStr of objMatches) {
+      const letterMatch = objStr.match(/"letter"\s*:\s*"([A-Za-z?])"/);
+      const rowMatch = objStr.match(/"row"\s*:\s*(\d+)/);
+      const colMatch = objStr.match(/"col"\s*:\s*(\d+)/);
+      if (letterMatch && rowMatch && colMatch) {
+        const letter = letterMatch[1].toUpperCase();
+        if (/^[A-Z?]$/.test(letter)) {
+          tiles.push({
+            letter: letter === '?' ? ' ' : letter,
+            row: Math.max(0, Math.min(14, parseInt(rowMatch[1], 10) || 0)),
+            col: Math.max(0, Math.min(14, parseInt(colMatch[1], 10) || 0)),
+            isBlank: /\b"isBlank"\s*:\s*true\b/.test(objStr),
+          });
+        }
+      }
+    }
+    if (tiles.length > 0) return { tiles };
+  }
+  return null;
+}
 
 async function inferMove(board, rack, newTiles, apiKey) {
   const rackStr = (rack || []).map((c) => (c === ' ' ? '?' : c)).join(',');
@@ -270,9 +320,10 @@ Return ONLY valid JSON with a "tiles" array.`;
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? data.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Empty Gemini response');
 
-  const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
-  const parsed = JSON.parse(cleaned);
-  const tiles = Array.isArray(parsed?.tiles) ? parsed.tiles : [];
+  const parsed = tryParseInferJson(text);
+  if (!parsed) throw new Error('Could not parse Gemini response as JSON');
+
+  const tiles = Array.isArray(parsed.tiles) ? parsed.tiles : [];
   return tiles
     .filter((t) => t && typeof t.row === 'number' && typeof t.col === 'number' && t.letter)
     .map((t) => ({
