@@ -66,7 +66,7 @@ function App() {
         const grid = await recognizeBoard(prepared, { useGeminiFix });
         const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
         if (isHumanTurn) {
-          const result = applyHumanMoveFromBoardImage(grid);
+          const result = await applyHumanMoveFromBoardImage(grid);
           if (!result.success) {
             showToast(result.message ?? 'Recognition failed');
           }

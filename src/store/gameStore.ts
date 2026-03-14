@@ -13,6 +13,7 @@ import {
   rackToApiFormat,
   parseScrabblecamMove,
 } from '../cv/scrabblecamApi';
+import { inferMoveFromBoardImage } from '../cv/geminiInferMoveApi';
 
 /** Validate that a move forms only legal words (main word + cross-words) per our dictionary. */
 function isMoveValid(board: BoardState, tiles: PlacedTile[], trie: Trie): boolean {
@@ -70,7 +71,7 @@ interface GameStore {
   setBoardFromRecognition: (grid: (string | null)[][]) => void;
   setBoardCell: (row: number, col: number, letter: string | null) => void;
   setHumanRack: (rack: string[]) => void;
-  applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => { success: boolean; message?: string };
+  applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => Promise<{ success: boolean; message?: string }>;
   validateMove: (tiles: PlacedTile[]) => boolean;
 }
 
@@ -325,54 +326,31 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  applyHumanMoveFromBoardImage: (newGrid) => {
-    const { board, humanRack, trie, validateRack } = get();
+  applyHumanMoveFromBoardImage: async (recognizedGrid) => {
+    const { board, humanRack, trie } = get();
     if (!trie) return { success: false, message: 'Dictionary not loaded' };
 
-    const currentArr = board.toArray();
-    const rawTiles: { letter: string; row: number; col: number }[] = [];
-    for (let r = 0; r < 15; r++) {
-      for (let c = 0; c < 15; c++) {
-        const curr = currentArr[r]?.[c];
-        const next = newGrid[r]?.[c];
-        if (!curr && next && /^[A-Z]$/.test(next)) {
-          rawTiles.push({ letter: next, row: r, col: c });
-        }
-      }
+    const previousBoard = board.toArray();
+    const res = await inferMoveFromBoardImage(previousBoard, recognizedGrid, humanRack);
+
+    if (res.status === 'ERROR') {
+      return { success: false, message: res.message ?? 'Could not infer move' };
     }
 
-    if (rawTiles.length === 0) {
-      return { success: false, message: 'No new tiles found. Make sure you placed tiles on the board.' };
+    const tiles = res.tiles ?? [];
+    if (tiles.length === 0) {
+      return { success: false, message: 'Could not infer a legal move. Make sure you placed tiles forming one word.' };
     }
 
-    const rackCount: Record<string, number> = {};
-    for (const c of humanRack) {
-      const k = c === ' ' ? ' ' : c;
-      rackCount[k] = (rackCount[k] ?? 0) + 1;
-    }
-    const newTiles: PlacedTile[] = [];
-    for (const t of rawTiles) {
-      if (validateRack) {
-        if ((rackCount[t.letter] ?? 0) > 0) {
-          rackCount[t.letter]!--;
-          newTiles.push({ ...t });
-        } else if ((rackCount[' '] ?? 0) > 0) {
-          rackCount[' ']!--;
-          newTiles.push({ ...t, isBlank: true });
-        } else {
-          return { success: false, message: `Tile ${t.letter} not in your rack.` };
-        }
-      } else {
-        if ((rackCount[t.letter] ?? 0) > 0) {
-          rackCount[t.letter]!--;
-          newTiles.push({ ...t });
-        } else if ((rackCount[' '] ?? 0) > 0) {
-          rackCount[' ']!--;
-          newTiles.push({ ...t, isBlank: true });
-        } else {
-          newTiles.push({ ...t });
-        }
-      }
+    const newTiles: PlacedTile[] = tiles.map((t) => ({
+      row: t.row,
+      col: t.col,
+      letter: t.letter,
+      isBlank: t.isBlank,
+    }));
+
+    if (!get().validateMove(newTiles)) {
+      return { success: false, message: 'Inferred move is not a valid word. Try a clearer photo.' };
     }
 
     const result = get().playHumanMove(newTiles);

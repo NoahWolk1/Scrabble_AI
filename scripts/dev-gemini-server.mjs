@@ -228,6 +228,59 @@ function applyPostProcessingOnly(grid) {
   return fixed;
 }
 
+async function inferMove(previousBoard, recognizedBoard, humanRack, apiKey) {
+  const SYSTEM_PROMPT = `You infer the Scrabble move a player most likely made.
+Given: previousBoard (15x15 before move), recognizedBoard (15x15 from photo after move), humanRack (player's letters, ? = blank).
+In Scrabble, a legal move places tiles forming exactly ONE new word (horizontal or vertical). Assume the player played legally.
+Return ONLY a JSON array of tiles placed: [{"row":0,"col":7,"letter":"A"},...]. Use isBlank:true for blanks. Row/col 0-14. Return [] if no valid move.`;
+
+  const prevStr = JSON.stringify(previousBoard.map((row) => (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))));
+  const recStr = JSON.stringify(recognizedBoard.map((row) => (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))));
+  const rackStr = (humanRack ?? []).map((c) => (c === ' ' || c === '?' ? '?' : c)).join(',');
+
+  const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\npreviousBoard:\n${prevStr}\n\nrecognizedBoard:\n${recStr}\n\nhumanRack: [${rackStr}]` }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: 'application/json' },
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Gemini API: ${response.status}`);
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Empty Gemini response');
+
+  const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
+  let parsed;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(parsed)) return [];
+
+  const result = parsed.map((t) => ({
+    row: Math.max(0, Math.min(14, Number(t?.row) ?? 0)),
+    col: Math.max(0, Math.min(14, Number(t?.col) ?? 0)),
+    letter: (String(t?.letter || '').trim().toUpperCase() || ' ').slice(0, 1),
+    isBlank: !!t?.isBlank,
+  })).filter((t) => (t.letter && t.letter !== ' ') || t.isBlank);
+
+  // For blanks, use letter from recognized board
+  return result.map((t) => {
+    if (t.isBlank) {
+      const cell = recognizedBoard[t.row]?.[t.col];
+      const letter = cell && cell !== ' ' && String(cell).match(/[A-Za-z]/)
+        ? String(cell).toUpperCase()
+        : t.letter;
+      return { ...t, letter };
+    }
+    return t;
+  });
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -239,7 +292,7 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/fix-board') {
+  if (req.method !== 'POST' || (req.url !== '/fix-board' && req.url !== '/infer-move')) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Not found' }));
     return;
@@ -254,6 +307,33 @@ const server = createServer(async (req, res) => {
 
   let body = '';
   for await (const chunk of req) body += chunk;
+
+  if (req.url === '/infer-move') {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid JSON' }));
+      return;
+    }
+    const { previousBoard, recognizedBoard, humanRack } = parsed;
+    if (!Array.isArray(previousBoard) || previousBoard.length !== 15 || !Array.isArray(recognizedBoard) || recognizedBoard.length !== 15) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid input: need 15x15 previousBoard and recognizedBoard' }));
+      return;
+    }
+    try {
+      const tiles = await inferMove(previousBoard, recognizedBoard, humanRack || [], apiKey);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'OK', tiles }));
+    } catch (err) {
+      console.warn('infer-move failed:', err?.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Infer move failed').replace(/[^\x20-\x7E]/g, '') }));
+    }
+    return;
+  }
 
   let grid;
   try {
