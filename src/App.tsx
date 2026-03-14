@@ -351,7 +351,7 @@ function App() {
                 {error && (
                   <p className="text-red-600 dark:text-red-400 text-center text-sm">{error}</p>
                 )}
-              </div>
+      </div>
             ) : (
               <>
                 <div className="flex flex-col sm:flex-row gap-2">
@@ -371,7 +371,7 @@ function App() {
                     className="flex-1 py-3 px-4 rounded-xl font-semibold touch-manipulation bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none text-white min-h-[48px] shadow-md hover:shadow-lg transition-all"
                   >
                     Capture board
-                  </button>
+        </button>
                 </div>
                 <CameraView
                   ref={cameraRef}

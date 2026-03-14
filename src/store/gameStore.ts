@@ -13,7 +13,7 @@ import {
   rackToApiFormat,
   parseScrabblecamMove,
 } from '../cv/scrabblecamApi';
-import { inferMoveFromBoardImage } from '../cv/geminiInferMoveApi';
+import { inferMoveFromBoard } from '../cv/geminiFixApi';
 
 /** Validate that a move forms only legal words (main word + cross-words) per our dictionary. */
 function isMoveValid(board: BoardState, tiles: PlacedTile[], trie: Trie): boolean {
@@ -62,7 +62,7 @@ interface GameStore {
   initGame: (trie: Trie) => void;
   setValidateRack: (validate: boolean) => void;
   setAIDifficulty: (difficulty: AIDifficulty) => void;
-  playHumanMove: (tiles: PlacedTile[]) => { success: boolean; message?: string };
+  playHumanMove: (tiles: PlacedTile[], options?: { skipRackValidation?: boolean }) => { success: boolean; message?: string };
   playAIMove: () => Promise<void>;
   passHuman: () => void;
   passAI: () => void;
@@ -122,8 +122,11 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  playHumanMove: (tiles) => {
+  playHumanMove: (tiles, options) => {
     const { board, humanRack, isFirstMove, validateRack } = get();
+    const skipRackValidation = options?.skipRackValidation ?? false;
+    const checkRack = validateRack && !skipRackValidation;
+
     if (tiles.length === 0) return { success: false, message: 'No tiles to play' };
 
     const score = calculateMoveScore(board, tiles, isFirstMove);
@@ -133,12 +136,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       if (t.isBlank) {
         const blankIdx = rackCopy.indexOf(' ');
         if (blankIdx >= 0) rackCopy.splice(blankIdx, 1);
-        else if (validateRack) return { success: false, message: 'Tile not in your rack' };
+        else if (checkRack) return { success: false, message: 'Tile not in your rack' };
         else if (rackCopy.length > 0) rackCopy.splice(0, 1);
       } else {
         const idx = rackCopy.indexOf(t.letter);
         if (idx >= 0) rackCopy.splice(idx, 1);
-        else if (validateRack) return { success: false, message: 'Tile not in your rack' };
+        else if (checkRack) return { success: false, message: 'Tile not in your rack' };
         else {
           const blankIdx = rackCopy.indexOf(' ');
           if (blankIdx >= 0) rackCopy.splice(blankIdx, 1);
@@ -326,35 +329,42 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  applyHumanMoveFromBoardImage: async (recognizedGrid) => {
+  applyHumanMoveFromBoardImage: async (newGrid) => {
     const { board, humanRack, trie } = get();
     if (!trie) return { success: false, message: 'Dictionary not loaded' };
 
-    const previousBoard = board.toArray();
-    const res = await inferMoveFromBoardImage(previousBoard, recognizedGrid, humanRack);
-
-    if (res.status === 'ERROR') {
-      return { success: false, message: res.message ?? 'Could not infer move' };
+    const currentArr = board.toArray();
+    const rawTiles: { letter: string; row: number; col: number }[] = [];
+    for (let r = 0; r < 15; r++) {
+      for (let c = 0; c < 15; c++) {
+        const curr = currentArr[r]?.[c];
+        const next = newGrid[r]?.[c];
+        if (!curr && next) {
+          const letter = next === ' ' || next === '?' ? '?' : /^[A-Za-z]$/.test(next) ? next.toUpperCase() : null;
+          if (letter) rawTiles.push({ letter, row: r, col: c });
+        }
+      }
     }
 
-    const tiles = res.tiles ?? [];
-    if (tiles.length === 0) {
-      return { success: false, message: 'Could not infer a legal move. Make sure you placed tiles forming one word.' };
+    if (rawTiles.length === 0) {
+      return { success: false, message: 'No new tiles found. Make sure you placed tiles on the board.' };
     }
 
-    const newTiles: PlacedTile[] = tiles.map((t) => ({
-      row: t.row,
-      col: t.col,
-      letter: t.letter,
-      isBlank: t.isBlank,
-    }));
+    try {
+      const inferred = await inferMoveFromBoard(currentArr, humanRack, rawTiles);
+      const newTiles: PlacedTile[] = inferred.map((t) => ({
+        letter: t.letter,
+        row: t.row,
+        col: t.col,
+        isBlank: t.isBlank,
+      }));
 
-    if (!get().validateMove(newTiles)) {
-      return { success: false, message: 'Inferred move is not a valid word. Try a clearer photo.' };
+      const result = get().playHumanMove(newTiles, { skipRackValidation: true });
+      return result.success ? { success: true } : { success: false, message: result.message ?? 'Invalid move' };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not infer move';
+      return { success: false, message: msg };
     }
-
-    const result = get().playHumanMove(newTiles);
-    return result.success ? { success: true } : { success: false, message: result.message ?? 'Invalid move' };
   },
 
   validateMove: (tiles) => {

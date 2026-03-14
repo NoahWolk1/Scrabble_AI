@@ -213,6 +213,76 @@ async function fixBoard(grid, apiKey) {
   return fixed;
 }
 
+const INFER_MOVE_PROMPT = `You are a Scrabble move inferrer. The player placed tiles on the board and we captured it with OCR.
+OCR can have errors: wrong letters, extra letters, missing letters, or misidentified positions.
+
+RULES:
+- In Scrabble, a player plays exactly ONE word per turn (one connected sequence of tiles, horizontal OR vertical).
+- The word must be valid English (in a Scrabble dictionary).
+- The tiles played must come from the player's rack (letters and up to 2 blanks).
+- Blanks can represent any letter.
+
+Given:
+1. The board state BEFORE the move (existing tiles)
+2. The player's rack (letters they had, "?" = blank)
+3. The "new" tiles that OCR detected (cells that were empty and now have something — may include OCR errors)
+
+Output the tiles of the SINGLE word the player most likely played. Pick the most plausible legal move.
+- If OCR added spurious letters, omit them.
+- If OCR misread a letter, correct it to form a valid word that fits the rack.
+- If multiple words are possible, choose the one that best fits the rack and board.
+
+Return JSON: { "tiles": [ { "letter": "A", "row": 7, "col": 7, "isBlank": false }, ... ] }
+Use isBlank: true only for tiles that used a blank. Letter should be the letter the blank represents.`;
+
+async function inferMove(board, rack, newTiles, apiKey) {
+  const rackStr = (rack || []).map((c) => (c === ' ' ? '?' : c)).join(',');
+  const boardStr = JSON.stringify(
+    board.map((row) =>
+      (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))
+    )
+  );
+  const newTilesStr = JSON.stringify(newTiles || []);
+
+  const prompt = `${INFER_MOVE_PROMPT}
+
+Board (before move), 15 rows:
+${boardStr}
+
+Player's rack: [${rackStr}]
+
+New tiles detected by OCR (may have errors): ${newTilesStr}
+
+Return ONLY valid JSON with a "tiles" array.`;
+
+  const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 1024, responseMimeType: 'application/json' },
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Gemini API: ${response.status}`);
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Empty Gemini response');
+
+  const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+  const tiles = Array.isArray(parsed?.tiles) ? parsed.tiles : [];
+  return tiles
+    .filter((t) => t && typeof t.row === 'number' && typeof t.col === 'number' && t.letter)
+    .map((t) => ({
+      letter: String(t.letter).toUpperCase().slice(0, 1),
+      row: Math.max(0, Math.min(14, Math.floor(Number(t.row)))),
+      col: Math.max(0, Math.min(14, Math.floor(Number(t.col)))),
+      isBlank: !!t.isBlank,
+    }));
+}
+
 function applyPostProcessingOnly(grid) {
   const normalized = grid.map((row) =>
     (row ?? []).slice(0, 15).map((c) => {
@@ -228,59 +298,6 @@ function applyPostProcessingOnly(grid) {
   return fixed;
 }
 
-async function inferMove(previousBoard, recognizedBoard, humanRack, apiKey) {
-  const SYSTEM_PROMPT = `You infer the Scrabble move a player most likely made.
-Given: previousBoard (15x15 before move), recognizedBoard (15x15 from photo after move), humanRack (player's letters, ? = blank).
-In Scrabble, a legal move places tiles forming exactly ONE new word (horizontal or vertical). Assume the player played legally.
-Return ONLY a JSON array of tiles placed: [{"row":0,"col":7,"letter":"A"},...]. Use isBlank:true for blanks. Row/col 0-14. Return [] if no valid move.`;
-
-  const prevStr = JSON.stringify(previousBoard.map((row) => (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))));
-  const recStr = JSON.stringify(recognizedBoard.map((row) => (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))));
-  const rackStr = (humanRack ?? []).map((c) => (c === ' ' || c === '?' ? '?' : c)).join(',');
-
-  const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `${SYSTEM_PROMPT}\n\npreviousBoard:\n${prevStr}\n\nrecognizedBoard:\n${recStr}\n\nhumanRack: [${rackStr}]` }] }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: 'application/json' },
-    }),
-  });
-
-  if (!response.ok) throw new Error(`Gemini API: ${response.status}`);
-  const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Empty Gemini response');
-
-  const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
-  let parsed;
-  try {
-    parsed = JSON.parse(cleaned);
-  } catch {
-    return [];
-  }
-  if (!Array.isArray(parsed)) return [];
-
-  const result = parsed.map((t) => ({
-    row: Math.max(0, Math.min(14, Number(t?.row) ?? 0)),
-    col: Math.max(0, Math.min(14, Number(t?.col) ?? 0)),
-    letter: (String(t?.letter || '').trim().toUpperCase() || ' ').slice(0, 1),
-    isBlank: !!t?.isBlank,
-  })).filter((t) => (t.letter && t.letter !== ' ') || t.isBlank);
-
-  // For blanks, use letter from recognized board
-  return result.map((t) => {
-    if (t.isBlank) {
-      const cell = recognizedBoard[t.row]?.[t.col];
-      const letter = cell && cell !== ' ' && String(cell).match(/[A-Za-z]/)
-        ? String(cell).toUpperCase()
-        : t.letter;
-      return { ...t, letter };
-    }
-    return t;
-  });
-}
-
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -292,7 +309,8 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== 'POST' || (req.url !== '/fix-board' && req.url !== '/infer-move')) {
+  const path = (req.url || '').split('?')[0];
+  if (req.method !== 'POST' || (path !== '/fix-board' && path !== '/infer-move')) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Not found' }));
     return;
@@ -308,43 +326,42 @@ const server = createServer(async (req, res) => {
   let body = '';
   for await (const chunk of req) body += chunk;
 
-  if (req.url === '/infer-move') {
-    let parsed;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid JSON' }));
-      return;
-    }
-    const { previousBoard, recognizedBoard, humanRack } = parsed;
-    if (!Array.isArray(previousBoard) || previousBoard.length !== 15 || !Array.isArray(recognizedBoard) || recognizedBoard.length !== 15) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid input: need 15x15 previousBoard and recognizedBoard' }));
-      return;
-    }
-    try {
-      const tiles = await inferMove(previousBoard, recognizedBoard, humanRack || [], apiKey);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'OK', tiles }));
-    } catch (err) {
-      console.warn('infer-move failed:', err?.message);
-      res.writeHead(502, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Infer move failed').replace(/[^\x20-\x7E]/g, '') }));
-    }
-    return;
-  }
-
-  let grid;
+  let parsed;
   try {
-    const parsed = JSON.parse(body);
-    grid = parsed?.grid;
+    parsed = JSON.parse(body);
   } catch {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid JSON' }));
     return;
   }
 
+  if (path === '/infer-move') {
+    const board = parsed?.board;
+    const rack = parsed?.rack ?? [];
+    const newTiles = parsed?.newTiles ?? [];
+    if (!Array.isArray(board) || board.length !== 15) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid board: expected 15x15 array' }));
+      return;
+    }
+    try {
+      const tiles = await inferMove(board, rack, newTiles, apiKey);
+      if (tiles.length === 0) {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ERROR', message: 'Could not infer a valid move' }));
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'OK', tiles }));
+    } catch (err) {
+      const msg = (err?.message || 'Infer move failed').replace(/[^\x20-\x7E]/g, '');
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: msg }));
+    }
+    return;
+  }
+
+  const grid = parsed?.grid;
   if (!Array.isArray(grid) || grid.length !== 15) {
     res.writeHead(400, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid grid: expected 15x15 array' }));

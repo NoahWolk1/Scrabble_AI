@@ -2,51 +2,40 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-const SYSTEM_PROMPT = `You infer the Scrabble move a player most likely made.
+interface RawTile {
+  letter: string;
+  row: number;
+  col: number;
+}
+
+interface InferredTile {
+  letter: string;
+  row: number;
+  col: number;
+  isBlank?: boolean;
+}
+
+const SYSTEM_PROMPT = `You are a Scrabble move inferrer. The player placed tiles on the board and we captured it with OCR.
+OCR can have errors: wrong letters, extra letters, missing letters, or misidentified positions.
+
+RULES:
+- In Scrabble, a player plays exactly ONE word per turn (one connected sequence of tiles, horizontal OR vertical).
+- The word must be valid English (in a Scrabble dictionary).
+- The tiles played must come from the player's rack (letters and up to 2 blanks).
+- Blanks can represent any letter.
 
 Given:
-1. previousBoard: 15x15 grid BEFORE the player's move (empty cells = "" or null)
-2. recognizedBoard: 15x15 grid from a PHOTO after the player placed tiles (OCR may have errors)
-3. humanRack: the letters the player had (use "?" for blank)
+1. The board state BEFORE the move (existing tiles)
+2. The player's rack (letters they had, "?" = blank)
+3. The "new" tiles that OCR detected (cells that were empty and now have something — may include OCR errors)
 
-In Scrabble, a legal move places tiles that form exactly ONE new word (horizontal or vertical). The word can extend existing words (e.g. adding S to CAT→CATS) or form a new word that crosses existing letters.
+Output the tiles of the SINGLE word the player most likely played. Pick the most plausible legal move.
+- If OCR added spurious letters, omit them.
+- If OCR misread a letter, correct it to form a valid word that fits the rack.
+- If multiple words are possible, choose the one that best fits the rack and board.
 
-Assume the player played a legal, single-word move. Your job: infer which tiles they placed.
-
-Rules:
-- Return ONLY the tiles the player PLACED this turn (the new ones)
-- All returned tiles must be in cells that are empty in previousBoard and have a letter in recognizedBoard
-- The tiles must form one connected word (horizontal or vertical)
-- Prefer using letters from humanRack; blanks (?) can represent any letter
-- If OCR misread a letter, infer the correct letter that forms a valid English word
-- Row and col are 0-14
-
-Output ONLY a JSON array: [{"row":0,"col":7,"letter":"A"},...]
-Use "isBlank": true when a blank tile was used. Return [] if no valid single-word move can be inferred.`;
-
-function tryParseTilesJson(str: string): { row: number; col: number; letter: string; isBlank?: boolean }[] | null {
-  const cleaned = str.replace(/^```json\s*|\s*```$/g, '').trim();
-  try {
-    const p = JSON.parse(cleaned);
-    if (!Array.isArray(p)) return null;
-    return p.map((t: unknown) => {
-      if (t && typeof t === 'object' && 'row' in t && 'col' in t && 'letter' in t) {
-        const obj = t as { row: number; col: number; letter: string; isBlank?: boolean };
-        const letter = String(obj.letter || '').trim().toUpperCase();
-        if (letter.length !== 1 && !obj.isBlank) return null;
-        return {
-          row: Math.max(0, Math.min(14, Number(obj.row) || 0)),
-          col: Math.max(0, Math.min(14, Number(obj.col) || 0)),
-          letter: letter || ' ',
-          isBlank: !!obj.isBlank,
-        };
-      }
-      return null;
-    }).filter(Boolean);
-  } catch {
-    return null;
-  }
-}
+Return JSON: { "tiles": [ { "letter": "A", "row": 7, "col": 7, "isBlank": false }, ... ] }
+Use isBlank: true only for tiles that used a blank. Letter should be the letter the blank represents.`;
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
@@ -57,57 +46,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (!apiKey) {
     return res.status(500).json({
       status: 'ERROR',
-      message: 'GEMINI_API_KEY not configured',
+      message: 'GEMINI_API_KEY not configured.',
     });
   }
 
   try {
-    const { previousBoard, recognizedBoard, humanRack } = req.body as {
-      previousBoard?: (string | null)[][];
-      recognizedBoard?: (string | null)[][];
-      humanRack?: string[];
+    const body = req.body as {
+      board?: (string | null)[][];
+      rack?: string[];
+      newTiles?: RawTile[];
     };
 
-    if (!Array.isArray(previousBoard) || previousBoard.length !== 15 ||
-        !Array.isArray(recognizedBoard) || recognizedBoard.length !== 15) {
+    const board = body?.board;
+    const rack = body?.rack ?? [];
+    const newTiles = body?.newTiles ?? [];
+
+    if (!Array.isArray(board) || board.length !== 15) {
       return res.status(400).json({
         status: 'ERROR',
-        message: 'Invalid input: need 15x15 previousBoard and recognizedBoard',
+        message: 'Invalid board: expected 15x15 array',
       });
     }
 
-    const rackStr = Array.isArray(humanRack)
-      ? humanRack.map((c) => (c === ' ' || c === '?' ? '?' : c)).join(',')
-      : '';
+    const rackStr = rack.map((c) => (c === ' ' ? '?' : c)).join(',');
+    const boardStr = JSON.stringify(
+      board.map((row) =>
+        (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))
+      )
+    );
+    const newTilesStr = JSON.stringify(newTiles);
 
-    const prevStr = JSON.stringify(
-      previousBoard.map((row) =>
-        (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))
-      )
-    );
-    const recStr = JSON.stringify(
-      recognizedBoard.map((row) =>
-        (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))
-      )
-    );
+    const prompt = `${SYSTEM_PROMPT}
+
+Board (before move), 15 rows:
+${boardStr}
+
+Player's rack: [${rackStr}]
+
+New tiles detected by OCR (may have errors): ${newTilesStr}
+
+Return ONLY valid JSON with a "tiles" array.`;
 
     const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `${SYSTEM_PROMPT}\n\npreviousBoard:\n${prevStr}\n\nrecognizedBoard:\n${recStr}\n\nhumanRack: [${rackStr}]`,
-              },
-            ],
-          },
-        ],
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 2048,
+          maxOutputTokens: 1024,
           responseMimeType: 'application/json',
         },
       }),
@@ -138,30 +125,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    let tiles = tryParseTilesJson(text);
-    if (!tiles || tiles.length === 0) {
+    const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
+    let parsed: { tiles?: InferredTile[] };
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      return res.status(502).json({
+        status: 'ERROR',
+        message: 'Could not parse Gemini response as JSON',
+      });
+    }
+
+    const tiles = Array.isArray(parsed?.tiles) ? parsed.tiles : [];
+    const normalized: InferredTile[] = tiles
+      .filter((t) => t && typeof t.row === 'number' && typeof t.col === 'number' && t.letter)
+      .map((t) => ({
+        letter: String(t.letter).toUpperCase().slice(0, 1),
+        row: Math.max(0, Math.min(14, Math.floor(Number(t.row)))),
+        col: Math.max(0, Math.min(14, Math.floor(Number(t.col)))),
+        isBlank: !!t.isBlank,
+      }));
+
+    if (normalized.length === 0) {
       return res.status(200).json({
-        status: 'OK',
-        tiles: [],
+        status: 'ERROR',
         message: 'Could not infer a valid move',
       });
     }
 
-    // For blanks, ensure letter is the actual letter played (from recognized board)
-    tiles = tiles.map((t) => {
-      if (t.isBlank && (t.letter === '?' || t.letter === ' ')) {
-        const cell = recognizedBoard[t.row]?.[t.col];
-        const letter = cell && cell !== ' ' && /^[A-Z]$/.test(String(cell).toUpperCase())
-          ? String(cell).toUpperCase()
-          : 'E'; // fallback
-        return { ...t, letter };
-      }
-      return t;
-    });
-
-    return res.status(200).json({ status: 'OK', tiles });
+    return res.status(200).json({ status: 'OK', tiles: normalized });
   } catch (err) {
-    console.error('infer-move error:', err);
+    console.error('Infer move error:', err);
     return res.status(500).json({
       status: 'ERROR',
       message: err instanceof Error ? err.message : 'Infer move failed',
