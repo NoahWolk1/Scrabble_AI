@@ -131,9 +131,10 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (debugRef.current) console.log('[voice] error', event.error);
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        setError(event.error);
-      }
+      if (event.error === 'aborted') return;
+      if (event.error !== 'no-speech') setError(event.error);
+      // no-speech, network, etc.: restart to keep listening
+      if (activeRef.current) doRestart();
     };
 
     recognition.onend = () => {
@@ -195,6 +196,33 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     }
     setListening(false);
   }, []);
+
+  // Watchdog: if we should be listening but recognition died, restart
+  useEffect(() => {
+    if (!supported) return;
+    const id = setInterval(() => {
+      if (activeRef.current && !recognitionRef.current && !restartScheduledRef.current) {
+        if (debugRef.current) console.log('[voice] watchdog – restarting');
+        restartScheduledRef.current = true;
+        const delay = isSafari ? 250 : 150;
+        setTimeout(() => {
+          restartScheduledRef.current = false;
+          if (!activeRef.current) return;
+          const next = createAndStartRecognitionRef.current();
+          if (next) {
+            recognitionRef.current = next;
+            try {
+              next.start();
+              setListening(true);
+            } catch {
+              recognitionRef.current = null;
+            }
+          }
+        }, delay);
+      }
+    }, 2000);
+    return () => clearInterval(id);
+  }, [supported, isSafari]);
 
   return { listening, supported, error, startListening, stopListening };
 }
