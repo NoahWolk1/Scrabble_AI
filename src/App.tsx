@@ -28,6 +28,8 @@ function App() {
     lastAIMove,
     validateRack,
     setValidateRack,
+    loseTurnOnInvalidMove,
+    setLoseTurnOnInvalidMove,
     setBoardCell,
     aiDifficulty,
     setAIDifficulty,
@@ -71,6 +73,8 @@ function App() {
           const result = applyHumanMoveFromBoardImage(grid);
           if (!result.success) {
             showToast(result.message ?? 'Recognition failed');
+          } else if (result.lostTurn) {
+            showToast('Invalid move—you lost your turn');
           }
         } else {
           setBoardFromRecognition(grid);
@@ -128,26 +132,29 @@ function App() {
   useEffect(() => {
     if (lastAIMove && lastAIMove !== lastAIMoveRef.current) {
       lastAIMoveRef.current = lastAIMove;
+      const rackLetters = humanRack.map((c) => (c === ' ' ? 'blank' : c)).join(', ');
+      const rackAnnounce = humanRack.length > 0 ? ` Your letters are ${rackLetters}.` : '';
       if (lastAIMove.passed) {
-        speak('I pass. Your turn.');
+        speak(`I pass. Your turn.${rackAnnounce}`);
       } else {
         const letters = lastAIMove.word.split('').join(' ');
-        speak(`I play ${letters} for ${lastAIMove.score} points. Place my tiles on the board, then make your move and capture. Your turn.`);
+        speak(`I play ${letters} for ${lastAIMove.score} points. Place my tiles on the board, then make your move and capture. Your turn.${rackAnnounce}`);
       }
     }
-  }, [lastAIMove]);
+  }, [lastAIMove, humanRack]);
 
   useEffect(() => {
     if (_currentPlayer === 'human' && !gameOver && humanTurnRef.current === false) {
       humanTurnRef.current = true;
-      if (humanRack.length > 0) {
+      // First turn (human goes first): announce rack only
+      if (humanRack.length > 0 && !lastAIMove) {
         const letters = humanRack.map((c) => (c === ' ' ? 'blank' : c)).join(', ');
         speak(`Your letters are ${letters}.`);
       }
     } else if (_currentPlayer !== 'human') {
       humanTurnRef.current = false;
     }
-  }, [_currentPlayer, gameOver, humanRack]);
+  }, [_currentPlayer, gameOver, humanRack, lastAIMove]);
 
   useEffect(() => {
     if (_currentPlayer === 'human' && !gameOver && !stream) {
@@ -296,6 +303,15 @@ function App() {
                   className="rounded border-stone-300 text-amber-600 focus:ring-amber-400"
                 />
                 <span>AI fix (Gemini)</span>
+              </label>
+              <label className="flex items-center gap-2 text-sm cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 transition-colors" title="Invalid words or tiles not in rack cause you to lose your turn">
+                <input
+                  type="checkbox"
+                  checked={loseTurnOnInvalidMove}
+                  onChange={(e) => setLoseTurnOnInvalidMove(e.target.checked)}
+                  className="rounded border-stone-300 text-amber-600 focus:ring-amber-400"
+                />
+                <span>Lose turn on invalid move</span>
               </label>
             </div>
             {!stream ? (

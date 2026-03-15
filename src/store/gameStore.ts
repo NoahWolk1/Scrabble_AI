@@ -55,12 +55,14 @@ interface GameStore {
   pendingMove: PlacedTile[] | null;
   lastAIMove: LastAIMove | null;
   validateRack: boolean;
+  loseTurnOnInvalidMove: boolean;
   aiDifficulty: AIDifficulty;
   status: string;
   _lastHumanTurnSnapshot: TurnSnapshot | null;
 
   initGame: (trie: Trie) => void;
   setValidateRack: (validate: boolean) => void;
+  setLoseTurnOnInvalidMove: (value: boolean) => void;
   setAIDifficulty: (difficulty: AIDifficulty) => void;
   playHumanMove: (tiles: PlacedTile[]) => { success: boolean; message?: string };
   playAIMove: () => Promise<void>;
@@ -71,7 +73,7 @@ interface GameStore {
   setBoardFromRecognition: (grid: (string | null)[][]) => void;
   setBoardCell: (row: number, col: number, letter: string | null) => void;
   setHumanRack: (rack: string[]) => void;
-  applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => { success: boolean; message?: string };
+  applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => { success: boolean; message?: string; lostTurn?: boolean };
   validateMove: (tiles: PlacedTile[]) => boolean;
   undoLastTurn: () => boolean;
 }
@@ -105,12 +107,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
   pendingMove: null,
   lastAIMove: null,
   validateRack: false,
+  loseTurnOnInvalidMove: false,
   aiDifficulty: 'medium',
   status: 'Loading dictionary...',
   _lastHumanTurnSnapshot: null,
 
   setTrie: (trie) => set({ trie }),
   setValidateRack: (validate) => set({ validateRack: validate }),
+  setLoseTurnOnInvalidMove: (value) => set({ loseTurnOnInvalidMove: value }),
   setAIDifficulty: (aiDifficulty) => set({ aiDifficulty }),
 
   initGame: (trie) => {
@@ -358,7 +362,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   applyHumanMoveFromBoardImage: (newGrid) => {
-    const { board, humanRack, trie, validateRack } = get();
+    const { board, humanRack, trie, validateRack, loseTurnOnInvalidMove } = get();
     if (!trie) return { success: false, message: 'Dictionary not loaded' };
 
     const currentArr = board.toArray();
@@ -383,28 +387,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
       rackCount[k] = (rackCount[k] ?? 0) + 1;
     }
     const newTiles: PlacedTile[] = [];
+    let rackValid = true;
     for (const t of rawTiles) {
-      if (validateRack) {
-        if ((rackCount[t.letter] ?? 0) > 0) {
-          rackCount[t.letter]!--;
-          newTiles.push({ ...t });
-        } else if ((rackCount[' '] ?? 0) > 0) {
-          rackCount[' ']!--;
-          newTiles.push({ ...t, isBlank: true });
-        } else {
-          return { success: false, message: `Tile ${t.letter} not in your rack.` };
-        }
+      if ((rackCount[t.letter] ?? 0) > 0) {
+        rackCount[t.letter]!--;
+        newTiles.push({ ...t });
+      } else if ((rackCount[' '] ?? 0) > 0) {
+        rackCount[' ']!--;
+        newTiles.push({ ...t, isBlank: true });
       } else {
-        if ((rackCount[t.letter] ?? 0) > 0) {
-          rackCount[t.letter]!--;
-          newTiles.push({ ...t });
-        } else if ((rackCount[' '] ?? 0) > 0) {
-          rackCount[' ']!--;
-          newTiles.push({ ...t, isBlank: true });
-        } else {
-          newTiles.push({ ...t });
-        }
+        rackValid = false;
+        newTiles.push({ ...t }); // allow for word check; reject/forfeit below if needed
       }
+    }
+
+    const doForfeit = () => {
+      set({
+        currentPlayer: 'ai',
+        status: 'Invalid move—you lost your turn. AI thinking...',
+      });
+      return { success: true, lostTurn: true } as const;
+    };
+
+    // Rack invalid (played tiles not in rack)
+    if (!rackValid) {
+      if (loseTurnOnInvalidMove) return doForfeit();
+      if (validateRack) return { success: false, message: 'Tiles played are not in your rack.' };
+    }
+
+    // Validate words (main + connectors) before applying
+    const moveValid = get().validateMove(newTiles);
+    if (!moveValid && loseTurnOnInvalidMove) return doForfeit();
+    if (!moveValid) {
+      return { success: false, message: 'Invalid move. All words must be in the dictionary.' };
     }
 
     const result = get().playHumanMove(newTiles);
