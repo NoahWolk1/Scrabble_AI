@@ -16,20 +16,27 @@ import {
 
 /** Validate that a move forms only legal words (main word + cross-words) per our dictionary. */
 function isMoveValid(board: BoardState, tiles: PlacedTile[], trie: Trie): boolean {
+  return getInvalidWords(board, tiles, trie).length === 0;
+}
+
+/** Return words formed by the move that are not in the dictionary. */
+function getInvalidWords(board: BoardState, tiles: PlacedTile[], trie: Trie): string[] {
   const testBoard = board.clone();
   for (const t of tiles) testBoard.set(t.row, t.col, t.letter);
 
   const main = testBoard.getMainWord(tiles);
-  if (!main) return false;
-  if (!trie.has(main.word)) return false;
+  if (!main) return [];
+
+  const invalid: string[] = [];
+  if (!trie.has(main.word)) invalid.push(main.word);
 
   const direction = main.direction;
   const crossWords = testBoard.getCrossWords(tiles, direction);
   const uniqueCross = [...new Set(crossWords)];
   for (const w of uniqueCross) {
-    if (w.length > 1 && !trie.has(w)) return false;
+    if (w.length > 1 && !trie.has(w)) invalid.push(w);
   }
-  return true;
+  return invalid;
 }
 
 export interface LastAIMove {
@@ -416,10 +423,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     // Validate words (main + connectors) before applying
-    const moveValid = get().validateMove(newTiles);
+    const moveValid = trie ? isMoveValid(board, newTiles, trie) : false;
+    const invalidWords = trie ? getInvalidWords(board, newTiles, trie) : [];
     if (!moveValid && loseTurnOnInvalidMove) return doForfeit();
     if (!moveValid) {
-      return { success: false, message: 'Invalid move. All words must be in the dictionary.' };
+      const wordList = invalidWords.length > 0 ? invalidWords.join(', ') : '';
+      const msg = wordList
+        ? `Invalid move. Words not in dictionary: ${wordList}.`
+        : 'Invalid move. All words must be in the dictionary.';
+      return { success: false, message: msg };
     }
 
     const result = get().playHumanMove(newTiles);
