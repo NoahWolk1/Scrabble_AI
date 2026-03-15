@@ -3,23 +3,25 @@ import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 
 interface VoiceCaptureTriggerProps {
   onCapture: () => void;
+  onRecapture?: () => void;
   active: boolean;
   /** When true, user must tap a button to start listening (required for mobile mic permission) */
   requireTapToStart?: boolean;
 }
 
 /**
- * Listens for "your turn", "capture", "done", "finish", "go", and similar phrases—triggers capture.
- * Used on the Camera tab for hands-free capture.
+ * Listens for "your turn", "recapture", "done", "finish", "go", and similar phrases.
+ * "your turn" / "done" / etc. trigger capture; "recapture" triggers recapture (undo + capture).
  */
-export function VoiceCaptureTrigger({ onCapture, active, requireTapToStart = true }: VoiceCaptureTriggerProps) {
+export function VoiceCaptureTrigger({ onCapture, onRecapture, active, requireTapToStart = true }: VoiceCaptureTriggerProps) {
   const onCaptureRef = useRef(onCapture);
   onCaptureRef.current = onCapture;
+  const onRecaptureRef = useRef(onRecapture);
+  onRecaptureRef.current = onRecapture;
 
   const { supported, listening, startListening, stopListening } = useSpeechRecognition((cmd) => {
-    if (cmd === 'your_turn') {
-      onCaptureRef.current();
-    }
+    if (cmd === 'your_turn') onCaptureRef.current();
+    if (cmd === 'recapture') onRecaptureRef.current?.();
   });
 
   useEffect(() => {

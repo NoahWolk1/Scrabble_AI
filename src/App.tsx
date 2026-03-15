@@ -362,6 +362,11 @@ function App() {
                     onCapture={() => {
                       if (!recognizingRef.current) cameraRef.current?.capture();
                     }}
+                    onRecapture={() => {
+                      const didUndo = undoLastTurn();
+                      if (didUndo && !recognizingRef.current) cameraRef.current?.capture();
+                      else if (!didUndo) showToast('Nothing to recapture');
+                    }}
                   />
                   <button
                     type="button"
@@ -433,7 +438,7 @@ function App() {
                 </div>
                 {_currentPlayer === 'human' && !gameOver && !recognizing && (
                   <p className="text-stone-500 dark:text-stone-400 text-center text-sm leading-relaxed">
-                    Make your move, then say &quot;your turn&quot;, &quot;capture&quot;, &quot;done&quot;, &quot;finish&quot;, &quot;go&quot;, etc.—or tap Capture board.
+                    Make your move, then say &quot;your turn&quot;, &quot;done&quot;, &quot;finish&quot;, &quot;go&quot;, or &quot;recapture&quot;—or tap Capture board.
                   </p>
                 )}
               </>

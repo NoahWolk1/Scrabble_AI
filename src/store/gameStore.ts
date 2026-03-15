@@ -430,7 +430,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
       lastAIMove: null,
       gameOver: false,
       consecutivePasses: 0,
-      _lastHumanTurnSnapshot: null,
       status: 'Your turn. Recapture to try again.',
     });
     return true;

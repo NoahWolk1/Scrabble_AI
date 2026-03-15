@@ -28,20 +28,20 @@ interface SpeechRecognition extends EventTarget {
   onend: (() => void) | null;
 }
 
-export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | null;
+export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | 'recapture' | null;
 
 function matchCommand(transcript: string): VoiceCommand {
   const t = transcript.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  // Match phrase as substring (transcript can have prior text, e.g. "helloyouryour turn")
+  // Recapture first (before any capture-related match)
+  if (/\brecapture\b/.test(t)) return 'recapture';
+  // Capture triggers (no longer includes "capture" to avoid confusion with recapture)
   if (/(your|you\s*re|you|ur)\s*turn\b/.test(t)) return 'your_turn';
-  if (/\bcapture\b/.test(t)) return 'your_turn';
   if (/\b(done|finish|finished|finishing)\b/.test(t)) return 'your_turn';
   if (/\b(i\s*am\s*done|i\s*m\s*done|im\s*done)\b/.test(t)) return 'your_turn';
   if (/\b(go|lets\s*go|let's\s*go|okay\s*go|ok\s*go)\b/.test(t)) return 'your_turn';
   if (/\b(ready|complete|submitted|submit|next)\b/.test(t)) return 'your_turn';
   if (/\btake\s*(?:a\s*)?(?:picture|photo|shot)\b/.test(t)) return 'your_turn';
-  if (/\b(ok(?:ay)?|yeah|yes)\s*(?:go|capture|done|finish)\b/.test(t)) return 'your_turn';
-  if (/\bok(?:ay)?\s*capture\b/.test(t)) return 'your_turn';
+  if (/\b(ok(?:ay)?|yeah|yes)\s*(?:go|done|finish)\b/.test(t)) return 'your_turn';
   if (/\bplay\b/.test(t)) return 'play';
   if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
   if (/\bchallenge\b/.test(t)) return 'challenge';
