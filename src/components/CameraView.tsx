@@ -42,9 +42,6 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
-  const isMobile =
-    typeof window !== 'undefined' &&
-    /Mobi|Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent);
   const [rotation, setRotation] = useState(0); // 0, 90, 180, 270 degrees CW
   const [zoom, setZoom] = useState(1);
   const [zoomSupported, setZoomSupported] = useState(false);
@@ -240,12 +237,9 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         className="w-full h-full object-cover origin-center transition-transform duration-200"
         onClick={handleClickToFocus}
         style={{
-          // On mobile, rely on the browser's native pinch-zoom and tap-to-focus.
           transform:
             rotation !== 0
-              ? `rotate(${rotation}deg)${isMobile ? '' : ` scale(${Math.SQRT2 * (zoomSupported ? 1 : zoom)})`}`
-              : isMobile
-              ? undefined
+              ? `rotate(${rotation}deg) scale(${Math.SQRT2 * (zoomSupported ? 1 : zoom)})`
               : zoomSupported
               ? undefined
               : `scale(${zoom})`,
@@ -279,38 +273,34 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         </svg>
       </button>
 
-      {/* Desktop zoom + focus controls; on mobile we rely on native pinch + tap-to-focus. */}
-      {!isMobile && (
-        <>
-          <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 px-3 py-2 rounded-full bg-black/40 backdrop-blur text-white text-xs">
-            <span className="whitespace-nowrap">Zoom</span>
-            <input
-              type="range"
-              min={zoomMin}
-              max={zoomMax}
-              step={zoomStep}
-              value={zoom}
-              onChange={(e) => handleZoomChange(Number(e.target.value))}
-              className="flex-1 accent-amber-400"
-            />
-            <span className="w-10 text-right">{zoom.toFixed(1)}x</span>
-          </div>
+      {/* Zoom + focus controls (work on both mobile and desktop). */}
+      <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 px-3 py-2 rounded-full bg-black/40 backdrop-blur text-white text-xs">
+        <span className="whitespace-nowrap">Zoom</span>
+        <input
+          type="range"
+          min={zoomMin}
+          max={zoomMax}
+          step={zoomStep}
+          value={zoom}
+          onChange={(e) => handleZoomChange(Number(e.target.value))}
+          className="flex-1 accent-amber-400"
+        />
+        <span className="w-10 text-right">{zoom.toFixed(1)}x</span>
+      </div>
 
-          {/* Refocus button (best-effort; only works on devices that support focus constraints) */}
-          <button
-            type="button"
-            onClick={() => {
-              if (navigator.vibrate) navigator.vibrate(10);
-              refocus();
-            }}
-            className="absolute top-3 left-3 px-2.5 py-1.5 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg touch-manipulation z-10 text-xs font-medium"
-            title="Refocus camera"
-            aria-label="Refocus camera"
-          >
-            Focus
-          </button>
-        </>
-      )}
+      {/* Refocus button (best-effort; only works on devices that support focus constraints) */}
+      <button
+        type="button"
+        onClick={() => {
+          if (navigator.vibrate) navigator.vibrate(10);
+          refocus();
+        }}
+        className="absolute top-3 left-3 px-2.5 py-1.5 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg touch-manipulation z-10 text-xs font-medium"
+        title="Refocus camera"
+        aria-label="Refocus camera"
+      >
+        Focus
+      </button>
       {showCaptureButton && (
         <button
           type="button"
