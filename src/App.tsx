@@ -40,6 +40,8 @@ function App() {
   const setBoardFromRecognition = useGameStore((s) => s.setBoardFromRecognition);
   const setHumanRack = useGameStore((s) => s.setHumanRack);
   const applyHumanMoveFromBoardImage = useGameStore((s) => s.applyHumanMoveFromBoardImage);
+  const undoLastTurn = useGameStore((s) => s.undoLastTurn);
+  const canRecapture = useGameStore((s) => !!s._lastHumanTurnSnapshot);
   const lastAIMoveRef = useRef<unknown>(null);
   const cameraRef = useRef<CameraViewRef>(null);
   const recognizingRef = useRef(recognizing);
@@ -371,7 +373,24 @@ function App() {
                     className="flex-1 py-3 px-4 rounded-xl font-semibold touch-manipulation bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none text-white min-h-[48px] shadow-md hover:shadow-lg transition-all"
                   >
                     Capture board
-        </button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.vibrate) navigator.vibrate(30);
+                      const didUndo = undoLastTurn();
+                      if (didUndo && !recognizing) {
+                        cameraRef.current?.capture();
+                      } else if (!didUndo) {
+                        showToast('Nothing to recapture');
+                      }
+                    }}
+                    disabled={recognizing || !canRecapture}
+                    title={!canRecapture ? 'No previous turn to redo' : 'Undo last move and capture again'}
+                    className="flex-1 py-3 px-4 rounded-xl font-semibold touch-manipulation bg-stone-500 hover:bg-stone-600 disabled:opacity-50 disabled:pointer-events-none text-white min-h-[48px] shadow-md hover:shadow-lg transition-all"
+                  >
+                    Recapture
+                  </button>
                 </div>
                 <CameraView
                   ref={cameraRef}

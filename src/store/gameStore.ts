@@ -57,6 +57,7 @@ interface GameStore {
   validateRack: boolean;
   aiDifficulty: AIDifficulty;
   status: string;
+  _lastHumanTurnSnapshot: TurnSnapshot | null;
 
   initGame: (trie: Trie) => void;
   setValidateRack: (validate: boolean) => void;
@@ -72,6 +73,16 @@ interface GameStore {
   setHumanRack: (rack: string[]) => void;
   applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => { success: boolean; message?: string };
   validateMove: (tiles: PlacedTile[]) => boolean;
+  undoLastTurn: () => boolean;
+}
+
+interface TurnSnapshot {
+  board: BoardState;
+  humanRack: string[];
+  aiRack: string[];
+  bag: string[];
+  scores: { human: number; ai: number };
+  isFirstMove: boolean;
 }
 
 function applyMove(board: BoardState, tiles: PlacedTile[]): void {
@@ -96,6 +107,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   validateRack: false,
   aiDifficulty: 'medium',
   status: 'Loading dictionary...',
+  _lastHumanTurnSnapshot: null,
 
   setTrie: (trie) => set({ trie }),
   setValidateRack: (validate) => set({ validateRack: validate }),
@@ -105,8 +117,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const bag = createTileBag();
     const { drawn: humanRack, remaining: afterHuman } = drawTiles(bag, RACK_SIZE);
     const { drawn: aiRack, remaining: bagAfter } = drawTiles(afterHuman, RACK_SIZE);
+    const board = new BoardState();
     set({
-      board: new BoardState(),
+      board,
       humanRack,
       aiRack,
       bag: bagAfter,
@@ -118,6 +131,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       trie,
       lastAIMove: null,
       status: 'Your turn. Play a word or pass.',
+      _lastHumanTurnSnapshot: null,
     });
   },
 
@@ -164,6 +178,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       pendingMove: null,
       lastAIMove: null,
       status: 'AI is thinking...',
+      _lastHumanTurnSnapshot: null,
     });
     return { success: true };
   },
@@ -251,6 +266,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const newBoard = board.clone();
     applyMove(newBoard, bestMove.tiles);
 
+    const { humanRack } = get();
     set({
       board: newBoard,
       aiRack: [...rackCopy, ...drawn],
@@ -267,6 +283,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
         col: bestMove!.col,
       },
       status: `AI played "${bestMove!.word}" for ${bestMove!.score} points. Your turn.`,
+      _lastHumanTurnSnapshot: {
+        board: newBoard.clone(),
+        humanRack: [...humanRack],
+        aiRack: [...rackCopy, ...drawn],
+        bag: [...remaining],
+        scores: { ...get().scores, ai: get().scores.ai + bestMove!.score },
+        isFirstMove: false,
+      },
     });
   },
 
@@ -283,7 +307,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   passAI: () => {
-    const { consecutivePasses } = get();
+    const { consecutivePasses, board, humanRack, aiRack, bag, scores } = get();
     const newPasses = consecutivePasses + 1;
     const gameOver = newPasses >= 2;
     set({
@@ -292,6 +316,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
       gameOver,
       lastAIMove: { word: '', score: 0, passed: true },
       status: gameOver ? 'Game over (both passed).' : 'AI passed. Your turn.',
+      _lastHumanTurnSnapshot: {
+        board: board.clone(),
+        humanRack: [...humanRack],
+        aiRack: [...aiRack],
+        bag: [...bag],
+        scores: { ...scores },
+        isFirstMove: false,
+      },
     });
   },
 
@@ -382,5 +414,25 @@ export const useGameStore = create<GameStore>((set, get) => ({
   validateMove: (tiles) => {
     const { board, trie } = get();
     return trie ? isMoveValid(board, tiles, trie) : false;
+  },
+
+  undoLastTurn: () => {
+    const snapshot = get()._lastHumanTurnSnapshot;
+    if (!snapshot) return false;
+    set({
+      board: snapshot.board.clone(),
+      humanRack: [...snapshot.humanRack],
+      aiRack: [...snapshot.aiRack],
+      bag: [...snapshot.bag],
+      scores: { ...snapshot.scores },
+      isFirstMove: snapshot.isFirstMove,
+      currentPlayer: 'human',
+      lastAIMove: null,
+      gameOver: false,
+      consecutivePasses: 0,
+      _lastHumanTurnSnapshot: null,
+      status: 'Your turn. Recapture to try again.',
+    });
+    return true;
   },
 }));
