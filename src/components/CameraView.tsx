@@ -41,10 +41,67 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
 ) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoTrackRef = useRef<MediaStreamTrack | null>(null);
+  const isMobile =
+    typeof window !== 'undefined' &&
+    /Mobi|Android|iPhone|iPad|iPod/i.test(window.navigator.userAgent);
   const [rotation, setRotation] = useState(0); // 0, 90, 180, 270 degrees CW
+  const [zoom, setZoom] = useState(1);
+  const [zoomSupported, setZoomSupported] = useState(false);
+  const [zoomMin, setZoomMin] = useState(1);
+  const [zoomMax, setZoomMax] = useState(3);
+  const [zoomStep, setZoomStep] = useState(0.1);
 
   const cycleRotation = () => {
     setRotation((r) => (r + 90) % 360);
+  };
+
+  const applyZoom = (value: number) => {
+    // On phones we prefer native pinch-to-zoom; don't override with constraints.
+    if (isMobile) return;
+    const track = videoTrackRef.current;
+    if (!track) return;
+    const caps = track.getCapabilities?.() as MediaTrackCapabilities | undefined;
+    if (caps && 'zoom' in (caps as any)) {
+      track
+        .applyConstraints({ advanced: [{ zoom: value } as any] })
+        .catch(() => {
+          // Ignore zoom failures; some devices report capability but reject constraints.
+        });
+    }
+  };
+
+  const handleZoomChange = (value: number) => {
+    setZoom(value);
+    if (zoomSupported) {
+      applyZoom(value);
+    }
+  };
+
+  const refocus = () => {
+    // On phones we prefer the camera's native tap-to-focus.
+    if (isMobile) return;
+    const track = videoTrackRef.current;
+    if (!track || !track.getCapabilities) return;
+    const caps = track.getCapabilities() as MediaTrackCapabilities & { focusMode?: string[]; focusDistance?: { min: number; max: number; step?: number } };
+
+    const advanced: MediaTrackConstraintSet[] = [];
+    if (caps.focusMode && caps.focusMode.includes('continuous')) {
+      advanced.push({ focusMode: 'continuous' } as any);
+    } else if (caps.focusMode && caps.focusMode.includes('single-shot')) {
+      advanced.push({ focusMode: 'single-shot' } as any);
+    }
+
+    if (caps.focusDistance) {
+      const mid = (caps.focusDistance.min + caps.focusDistance.max) / 2;
+      advanced.push({ focusDistance: mid } as any);
+    }
+
+    if (advanced.length === 0) return;
+
+    track.applyConstraints({ advanced }).catch(() => {
+      // Ignore focus failures; many devices silently reject unsupported constraints.
+    });
   };
 
   const capture = () => {
@@ -96,6 +153,38 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      const tracks = stream.getVideoTracks();
+      const track = tracks[0];
+      videoTrackRef.current = track ?? null;
+
+      if (track && track.getCapabilities) {
+        const caps = track.getCapabilities() as MediaTrackCapabilities & {
+          zoom?: { min: number; max: number; step?: number; default?: number };
+        };
+        if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number') {
+          setZoomSupported(true);
+          const min = caps.zoom.min;
+          const max = caps.zoom.max;
+          const step = caps.zoom.step ?? ((max - min) / 10 || 0.1);
+          const initial = caps.zoom.default ?? caps.zoom.min;
+          setZoomMin(min);
+          setZoomMax(max);
+          setZoomStep(step);
+          setZoom(initial);
+          applyZoom(initial);
+        } else {
+          setZoomSupported(false);
+          setZoom(1);
+          setZoomMin(1);
+          setZoomMax(3);
+        }
+      } else {
+        videoTrackRef.current = null;
+        setZoomSupported(false);
+        setZoom(1);
+        setZoomMin(1);
+        setZoomMax(3);
+      }
     }
   }, [stream]);
 
@@ -108,7 +197,15 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         muted
         className="w-full h-full object-cover origin-center transition-transform duration-200"
         style={{
-          transform: rotation !== 0 ? `rotate(${rotation}deg) scale(${Math.SQRT2})` : undefined,
+          // On mobile, rely on the browser's native pinch-zoom and tap-to-focus.
+          transform:
+            rotation !== 0
+              ? `rotate(${rotation}deg)${isMobile ? '' : ` scale(${Math.SQRT2 * (zoomSupported ? 1 : zoom)})`}`
+              : isMobile
+              ? undefined
+              : zoomSupported
+              ? undefined
+              : `scale(${zoom})`,
         }}
       />
       <canvas ref={canvasRef} className="hidden" />
@@ -127,6 +224,39 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
           <path d="M21 3v5h-5" />
         </svg>
       </button>
+
+      {/* Desktop zoom + focus controls; on mobile we rely on native pinch + tap-to-focus. */}
+      {!isMobile && (
+        <>
+          <div className="absolute bottom-3 left-3 right-3 flex items-center gap-3 px-3 py-2 rounded-full bg-black/40 backdrop-blur text-white text-xs">
+            <span className="whitespace-nowrap">Zoom</span>
+            <input
+              type="range"
+              min={zoomMin}
+              max={zoomMax}
+              step={zoomStep}
+              value={zoom}
+              onChange={(e) => handleZoomChange(Number(e.target.value))}
+              className="flex-1 accent-amber-400"
+            />
+            <span className="w-10 text-right">{zoom.toFixed(1)}x</span>
+          </div>
+
+          {/* Refocus button (best-effort; only works on devices that support focus constraints) */}
+          <button
+            type="button"
+            onClick={() => {
+              if (navigator.vibrate) navigator.vibrate(10);
+              refocus();
+            }}
+            className="absolute top-3 left-3 px-2.5 py-1.5 rounded-full bg-white/90 hover:bg-white text-stone-900 shadow-lg touch-manipulation z-10 text-xs font-medium"
+            title="Refocus camera"
+            aria-label="Refocus camera"
+          >
+            Focus
+          </button>
+        </>
+      )}
       {showCaptureButton && (
         <button
           type="button"
