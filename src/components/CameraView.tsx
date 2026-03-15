@@ -53,10 +53,6 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   const [zoomStep, setZoomStep] = useState(0.1);
   const [lastFocusPoint, setLastFocusPoint] = useState<{ x: number; y: number } | null>(null);
 
-  // Pointer state for pinch-zoom and tap-to-focus
-  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const initialPinchRef = useRef<{ distance: number; zoom: number } | null>(null);
-
   const cycleRotation = () => {
     setRotation((r) => (r + 90) % 360);
   };
@@ -146,50 +142,8 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
     });
   };
 
-  const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointersRef.current.size === 2) {
-      const pts = Array.from(pointersRef.current.values());
-      const dx = pts[0].x - pts[1].x;
-      const dy = pts[0].y - pts[1].y;
-      const dist = Math.hypot(dx, dy);
-      initialPinchRef.current = { distance: dist, zoom };
-    }
-  };
-
-  const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = (e) => {
-    if (!pointersRef.current.has(e.pointerId)) return;
-    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (pointersRef.current.size === 2 && initialPinchRef.current) {
-      const pts = Array.from(pointersRef.current.values());
-      const dx = pts[0].x - pts[1].x;
-      const dy = pts[0].y - pts[1].y;
-      const dist = Math.hypot(dx, dy);
-      if (initialPinchRef.current.distance > 0) {
-        const scale = dist / initialPinchRef.current.distance;
-        handleZoomChange(initialPinchRef.current.zoom * scale);
-      }
-    }
-  };
-
-  const handlePointerUpOrCancel: React.PointerEventHandler<HTMLDivElement> = (e) => {
-    const before = new Map(pointersRef.current);
-    pointersRef.current.delete(e.pointerId);
-
-    // Tap-to-focus: single pointer ended with no pinch in progress.
-    if (
-      before.size === 1 &&
-      !initialPinchRef.current &&
-      e.pointerType !== 'touch' ? e.button === 0 : true
-    ) {
-      refocusAt(e.clientX, e.clientY);
-    }
-
-    if (pointersRef.current.size < 2) {
-      initialPinchRef.current = null;
-    }
+  const handleClickToFocus: React.MouseEventHandler<HTMLVideoElement> = (e) => {
+    refocusAt(e.clientX, e.clientY);
   };
 
   const capture = () => {
@@ -277,19 +231,14 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   }, [stream]);
 
   return (
-    <div
-      className="relative aspect-square max-w-md mx-auto bg-stone-900 rounded-2xl overflow-hidden isolate shadow-xl border border-stone-700/50 touch-none"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUpOrCancel}
-      onPointerCancel={handlePointerUpOrCancel}
-    >
+    <div className="relative aspect-square max-w-md mx-auto bg-stone-900 rounded-2xl overflow-hidden isolate shadow-xl border border-stone-700/50">
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
         className="w-full h-full object-cover origin-center transition-transform duration-200"
+        onClick={handleClickToFocus}
         style={{
           // On mobile, rely on the browser's native pinch-zoom and tap-to-focus.
           transform:
