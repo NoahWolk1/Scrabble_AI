@@ -44,7 +44,6 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   const videoTrackRef = useRef<MediaStreamTrack | null>(null);
   const [rotation, setRotation] = useState(0); // 0, 90, 180, 270 degrees CW
   const [zoom, setZoom] = useState(1);
-  const [zoomSupported, setZoomSupported] = useState(false);
   const [zoomMin, setZoomMin] = useState(1);
   const [zoomMax, setZoomMax] = useState(3);
   const [zoomStep, setZoomStep] = useState(0.1);
@@ -54,25 +53,9 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
     setRotation((r) => (r + 90) % 360);
   };
 
-  const applyZoom = (value: number) => {
-    const track = videoTrackRef.current;
-    if (!track) return;
-    const caps = track.getCapabilities?.() as MediaTrackCapabilities | undefined;
-    if (caps && 'zoom' in (caps as any)) {
-      track
-        .applyConstraints({ advanced: [{ zoom: value } as any] })
-        .catch(() => {
-          // Ignore zoom failures; some devices report capability but reject constraints.
-        });
-    }
-  };
-
   const handleZoomChange = (value: number) => {
     const clamped = Math.min(Math.max(value, zoomMin), zoomMax);
     setZoom(clamped);
-    if (zoomSupported) {
-      applyZoom(clamped);
-    }
   };
 
   const refocus = () => {
@@ -201,7 +184,6 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
           zoom?: { min: number; max: number; step?: number; default?: number };
         };
         if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number') {
-          setZoomSupported(true);
           const min = caps.zoom.min;
           const max = caps.zoom.max;
           const step = caps.zoom.step ?? ((max - min) / 10 || 0.1);
@@ -210,16 +192,13 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
           setZoomMax(max);
           setZoomStep(step);
           setZoom(initial);
-          applyZoom(initial);
         } else {
-          setZoomSupported(false);
           setZoom(1);
           setZoomMin(1);
           setZoomMax(3);
         }
       } else {
         videoTrackRef.current = null;
-        setZoomSupported(false);
         setZoom(1);
         setZoomMin(1);
         setZoomMax(3);
@@ -239,9 +218,7 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         style={{
           transform:
             rotation !== 0
-              ? `rotate(${rotation}deg) scale(${Math.SQRT2 * (zoomSupported ? 1 : zoom)})`
-              : zoomSupported
-              ? undefined
+              ? `rotate(${rotation}deg) scale(${Math.SQRT2 * zoom})`
               : `scale(${zoom})`,
         }}
       />
