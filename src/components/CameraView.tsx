@@ -179,30 +179,11 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
       const track = tracks[0];
       videoTrackRef.current = track ?? null;
 
-      if (track && track.getCapabilities) {
-        const caps = track.getCapabilities() as MediaTrackCapabilities & {
-          zoom?: { min: number; max: number; step?: number; default?: number };
-        };
-        if (caps.zoom && typeof caps.zoom.min === 'number' && typeof caps.zoom.max === 'number') {
-          const min = caps.zoom.min;
-          const max = caps.zoom.max;
-          const step = caps.zoom.step ?? ((max - min) / 10 || 0.1);
-          const initial = caps.zoom.default ?? caps.zoom.min;
-          setZoomMin(min);
-          setZoomMax(max);
-          setZoomStep(step);
-          setZoom(initial);
-        } else {
-          setZoom(1);
-          setZoomMin(1);
-          setZoomMax(3);
-        }
-      } else {
-        videoTrackRef.current = null;
-        setZoom(1);
-        setZoomMin(1);
-        setZoomMax(3);
-      }
+      // Pure digital zoom: always start at 1x filling the square.
+      setZoom(1);
+      setZoomMin(1);
+      setZoomMax(3);
+      setZoomStep(0.1);
     }
   }, [stream]);
 
