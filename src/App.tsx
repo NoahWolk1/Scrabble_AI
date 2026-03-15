@@ -7,7 +7,7 @@ import { CameraView, type CameraViewRef } from './components/CameraView';
 import { VoiceCaptureTrigger } from './components/VoiceCaptureTrigger';
 import { useGameStore } from './store/gameStore';
 import { useCamera } from './hooks/useCamera';
-import { speak } from './hooks/useSpeechSynthesis';
+import { speak, unlockSpeech } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
 import { recognizeBoard } from './cv/BoardRecognizer';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
@@ -377,9 +377,11 @@ function App() {
                   <VoiceCaptureTrigger
                     active={_currentPlayer === 'human' && !gameOver}
                     onCapture={() => {
+                      unlockSpeech();
                       if (!recognizingRef.current) cameraRef.current?.capture();
                     }}
                     onRecapture={() => {
+                      unlockSpeech();
                       const didUndo = undoLastTurn();
                       if (didUndo && !recognizingRef.current) cameraRef.current?.capture();
                       else if (!didUndo) showToast('Nothing to recapture');
@@ -388,6 +390,7 @@ function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      unlockSpeech();
                       if (navigator.vibrate) navigator.vibrate(30);
                       if (!recognizing) cameraRef.current?.capture();
                     }}
@@ -399,6 +402,7 @@ function App() {
                   <button
                     type="button"
                     onClick={() => {
+                      unlockSpeech();
                       if (navigator.vibrate) navigator.vibrate(30);
                       const didUndo = undoLastTurn();
                       if (didUndo && !recognizing) {
@@ -430,6 +434,7 @@ function App() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          unlockSpeech();
                           e.target.value = '';
                           handleBoardImage(file);
                         }
@@ -446,6 +451,7 @@ function App() {
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (file) {
+                          unlockSpeech();
                           e.target.value = '';
                           handleRackImage(file);
                         }
