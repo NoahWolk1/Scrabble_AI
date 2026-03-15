@@ -51,14 +51,17 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   const [zoomMin, setZoomMin] = useState(1);
   const [zoomMax, setZoomMax] = useState(3);
   const [zoomStep, setZoomStep] = useState(0.1);
+  const [lastFocusPoint, setLastFocusPoint] = useState<{ x: number; y: number } | null>(null);
+
+  // Pointer state for pinch-zoom and tap-to-focus
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const initialPinchRef = useRef<{ distance: number; zoom: number } | null>(null);
 
   const cycleRotation = () => {
     setRotation((r) => (r + 90) % 360);
   };
 
   const applyZoom = (value: number) => {
-    // On phones we prefer native pinch-to-zoom; don't override with constraints.
-    if (isMobile) return;
     const track = videoTrackRef.current;
     if (!track) return;
     const caps = track.getCapabilities?.() as MediaTrackCapabilities | undefined;
@@ -72,18 +75,21 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   };
 
   const handleZoomChange = (value: number) => {
-    setZoom(value);
+    const clamped = Math.min(Math.max(value, zoomMin), zoomMax);
+    setZoom(clamped);
     if (zoomSupported) {
-      applyZoom(value);
+      applyZoom(clamped);
     }
   };
 
   const refocus = () => {
-    // On phones we prefer the camera's native tap-to-focus.
-    if (isMobile) return;
     const track = videoTrackRef.current;
     if (!track || !track.getCapabilities) return;
-    const caps = track.getCapabilities() as MediaTrackCapabilities & { focusMode?: string[]; focusDistance?: { min: number; max: number; step?: number } };
+    const caps = track.getCapabilities() as MediaTrackCapabilities & {
+      focusMode?: string[];
+      focusDistance?: { min: number; max: number; step?: number };
+      pointsOfInterest?: any;
+    };
 
     const advanced: MediaTrackConstraintSet[] = [];
     if (caps.focusMode && caps.focusMode.includes('continuous')) {
@@ -102,6 +108,88 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
     track.applyConstraints({ advanced }).catch(() => {
       // Ignore focus failures; many devices silently reject unsupported constraints.
     });
+  };
+
+  const refocusAt = (clientX: number, clientY: number) => {
+    if (!videoRef.current) return;
+    const rect = videoRef.current.getBoundingClientRect();
+    const x = (clientX - rect.left) / rect.width;
+    const y = (clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) return;
+
+    setLastFocusPoint({ x, y });
+
+    const track = videoTrackRef.current;
+    if (!track || !track.getCapabilities) {
+      refocus();
+      return;
+    }
+    const caps = track.getCapabilities() as MediaTrackCapabilities & {
+      pointsOfInterest?: any;
+      focusMode?: string[];
+      focusDistance?: { min: number; max: number; step?: number };
+    };
+
+    const advanced: MediaTrackConstraintSet[] = [];
+    if (caps.pointsOfInterest) {
+      advanced.push({ pointsOfInterest: [{ x, y }] } as any);
+    }
+
+    if (advanced.length === 0) {
+      refocus();
+      return;
+    }
+
+    track.applyConstraints({ advanced }).catch(() => {
+      // Fallback to generic refocus if point-based focus fails.
+      refocus();
+    });
+  };
+
+  const handlePointerDown: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2) {
+      const pts = Array.from(pointersRef.current.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      const dist = Math.hypot(dx, dy);
+      initialPinchRef.current = { distance: dist, zoom };
+    }
+  };
+
+  const handlePointerMove: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    if (!pointersRef.current.has(e.pointerId)) return;
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointersRef.current.size === 2 && initialPinchRef.current) {
+      const pts = Array.from(pointersRef.current.values());
+      const dx = pts[0].x - pts[1].x;
+      const dy = pts[0].y - pts[1].y;
+      const dist = Math.hypot(dx, dy);
+      if (initialPinchRef.current.distance > 0) {
+        const scale = dist / initialPinchRef.current.distance;
+        handleZoomChange(initialPinchRef.current.zoom * scale);
+      }
+    }
+  };
+
+  const handlePointerUpOrCancel: React.PointerEventHandler<HTMLDivElement> = (e) => {
+    const before = new Map(pointersRef.current);
+    pointersRef.current.delete(e.pointerId);
+
+    // Tap-to-focus: single pointer ended with no pinch in progress.
+    if (
+      before.size === 1 &&
+      !initialPinchRef.current &&
+      e.pointerType !== 'touch' ? e.button === 0 : true
+    ) {
+      refocusAt(e.clientX, e.clientY);
+    }
+
+    if (pointersRef.current.size < 2) {
+      initialPinchRef.current = null;
+    }
   };
 
   const capture = () => {
@@ -189,7 +277,13 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
   }, [stream]);
 
   return (
-    <div className="relative aspect-square max-w-md mx-auto bg-stone-900 rounded-2xl overflow-hidden isolate shadow-xl border border-stone-700/50">
+    <div
+      className="relative aspect-square max-w-md mx-auto bg-stone-900 rounded-2xl overflow-hidden isolate shadow-xl border border-stone-700/50 touch-none"
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUpOrCancel}
+      onPointerCancel={handlePointerUpOrCancel}
+    >
       <video
         ref={videoRef}
         autoPlay
@@ -209,6 +303,17 @@ export const CameraView = forwardRef<CameraViewRef, CameraViewProps>(function Ca
         }}
       />
       <canvas ref={canvasRef} className="hidden" />
+      {lastFocusPoint && (
+        <div
+          className="pointer-events-none absolute border-2 border-amber-400 rounded-full"
+          style={{
+            width: 80,
+            height: 80,
+            left: `calc(${lastFocusPoint.x * 100}% - 40px)`,
+            top: `calc(${lastFocusPoint.y * 100}% - 40px)`,
+          }}
+        />
+      )}
       <button
         type="button"
         onClick={() => {
