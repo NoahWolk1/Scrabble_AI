@@ -20,7 +20,7 @@ export function VoiceCaptureTrigger({ onCapture, onRecapture, active, requireTap
   onRecaptureRef.current = onRecapture;
 
   const { supported, listening, startListening, stopListening } = useSpeechRecognition((cmd) => {
-    if (cmd === 'your_turn') onCaptureRef.current();
+    if (cmd === 'your_turn' || cmd === 'my_turn') onCaptureRef.current();
     if (cmd === 'recapture') onRecaptureRef.current?.();
   });
 

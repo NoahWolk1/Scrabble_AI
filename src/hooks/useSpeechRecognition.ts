@@ -113,13 +113,23 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       if (transcriptAccumRef.current.length > 150) {
         transcriptAccumRef.current = transcriptAccumRef.current.slice(-150);
       }
-      const toCheck = transcriptAccumRef.current;
-      if (!toCheck) return;
-      const cmd = matchCommand(toCheck);
-      if (debugRef.current) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
+      if (!transcriptAccumRef.current) return;
+
+      // First, try to match on just the latest chunk (helps ignore old noise).
+      let cmd: VoiceCommand | null = null;
+      if (chunk.trim()) {
+        cmd = matchCommand(chunk);
+        if (debugRef.current) console.log('[voice] chunk check', JSON.stringify(chunk.trim()), '→', cmd ?? 'no match');
+      }
+      // If no match on the latest phrase, fall back to the accumulated transcript.
+      if (!cmd) {
+        const toCheck = transcriptAccumRef.current;
+        cmd = matchCommand(toCheck);
+        if (debugRef.current) console.log('[voice] accum check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
+      }
       if (cmd) {
         const now = Date.now();
-        if (now - lastCommandTimeRef.current < 2500) return;
+        if (now - lastCommandTimeRef.current < 1500) return;
         lastCommandTimeRef.current = now;
         transcriptAccumRef.current = '';
         if (debugRef.current) console.log('[voice] triggering', cmd);
