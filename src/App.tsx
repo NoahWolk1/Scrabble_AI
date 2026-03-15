@@ -74,7 +74,7 @@ function App() {
           if (!result.success) {
             showToast(result.message ?? 'Recognition failed');
           } else if (result.lostTurn) {
-            showToast('Invalid move—you lost your turn');
+            showToast(result.message ?? 'Invalid move—you lost your turn');
           }
         } else {
           setBoardFromRecognition(grid);

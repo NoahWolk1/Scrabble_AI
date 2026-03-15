@@ -16,27 +16,32 @@ import {
 
 /** Validate that a move forms only legal words (main word + cross-words) per our dictionary. */
 function isMoveValid(board: BoardState, tiles: PlacedTile[], trie: Trie): boolean {
-  return getInvalidWords(board, tiles, trie).length === 0;
+  const { invalidWords, noMainWord } = getMoveWordValidity(board, tiles, trie);
+  return !noMainWord && invalidWords.length === 0;
 }
 
-/** Return words formed by the move that are not in the dictionary. */
-function getInvalidWords(board: BoardState, tiles: PlacedTile[], trie: Trie): string[] {
+/** Return invalid words (not in dictionary) and whether tiles fail to form a single main word. */
+function getMoveWordValidity(
+  board: BoardState,
+  tiles: PlacedTile[],
+  trie: Trie
+): { invalidWords: string[]; noMainWord: boolean } {
   const testBoard = board.clone();
   for (const t of tiles) testBoard.set(t.row, t.col, t.letter);
 
   const main = testBoard.getMainWord(tiles);
-  if (!main) return [];
+  if (!main) return { invalidWords: [], noMainWord: true };
 
-  const invalid: string[] = [];
-  if (!trie.has(main.word)) invalid.push(main.word);
+  const invalidWords: string[] = [];
+  if (!trie.has(main.word)) invalidWords.push(main.word);
 
   const direction = main.direction;
   const crossWords = testBoard.getCrossWords(tiles, direction);
   const uniqueCross = [...new Set(crossWords)];
   for (const w of uniqueCross) {
-    if (w.length > 1 && !trie.has(w)) invalid.push(w);
+    if (w.length > 1 && !trie.has(w)) invalidWords.push(w);
   }
-  return invalid;
+  return { invalidWords, noMainWord: false };
 }
 
 export interface LastAIMove {
@@ -385,7 +390,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     if (rawTiles.length === 0) {
-      return { success: false, message: 'No new tiles found. Make sure you placed tiles on the board.' };
+      return { success: false, message: 'Invalid move: no new tiles found. Make sure you placed tiles on the board.' };
     }
 
     const rackCount: Record<string, number> = {};
@@ -408,31 +413,32 @@ export const useGameStore = create<GameStore>((set, get) => ({
       }
     }
 
-    const doForfeit = () => {
+    const doForfeit = (reason: string) => {
       set({
         currentPlayer: 'ai',
         status: 'Invalid move—you lost your turn. AI thinking...',
       });
-      return { success: true, lostTurn: true } as const;
+      return { success: true, lostTurn: true, message: `${reason} You lost your turn.` } as const;
     };
 
     // Rack invalid (played tiles not in rack)
+    const rackReason = 'Invalid move: the tiles you played are not all in your rack.';
     if (!rackValid) {
-      if (loseTurnOnInvalidMove) return doForfeit();
-      if (validateRack) return { success: false, message: 'Tiles played are not in your rack.' };
+      if (loseTurnOnInvalidMove) return doForfeit(rackReason);
+      if (validateRack) return { success: false, message: rackReason };
     }
 
     // Validate words (main + connectors) before applying
-    const moveValid = trie ? isMoveValid(board, newTiles, trie) : false;
-    const invalidWords = trie ? getInvalidWords(board, newTiles, trie) : [];
-    if (!moveValid && loseTurnOnInvalidMove) return doForfeit();
+    const { invalidWords, noMainWord } = getMoveWordValidity(board, newTiles, trie);
+    const moveValid = isMoveValid(board, newTiles, trie);
+    let wordReason = '';
     if (!moveValid) {
-      const wordList = invalidWords.length > 0 ? invalidWords.join(', ') : '';
-      const msg = wordList
-        ? `Invalid move. Words not in dictionary: ${wordList}.`
-        : 'Invalid move. All words must be in the dictionary.';
-      return { success: false, message: msg };
+      if (noMainWord) wordReason = 'Invalid move: the tiles do not form a single word in one direction.';
+      else if (invalidWords.length > 0) wordReason = `Invalid move: these words are not in the dictionary: ${invalidWords.join(', ')}.`;
+      else wordReason = 'Invalid move: all words must be in the dictionary.';
     }
+    if (!moveValid && loseTurnOnInvalidMove) return doForfeit(wordReason);
+    if (!moveValid) return { success: false, message: wordReason };
 
     const result = get().playHumanMove(newTiles);
     return result.success ? { success: true } : { success: false, message: result.message ?? 'Invalid move' };
