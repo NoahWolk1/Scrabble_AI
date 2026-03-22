@@ -19,7 +19,11 @@ function ensure15x15(grid: (string | null)[][]): (string | null)[][] {
   return padded;
 }
 
-/** Merge prior board into result: fill any empty cells with prior values. */
+/**
+ * Merge prior board into result: existing tiles are immutable.
+ * Cells that had a letter in the prior must stay that letter—recognition cannot overwrite them.
+ * Only cells that were empty in the prior can show new letters from recognition.
+ */
 function mergeWithPrior(
   grid: (string | null)[][],
   prior: (string | null)[][]
@@ -27,8 +31,8 @@ function mergeWithPrior(
   return grid.map((row, r) =>
     row.map((cell, c) => {
       const p = prior[r]?.[c];
-      if (!cell && p) return p;
-      return cell;
+      if (p) return p; // Prior had a letter: always keep it (tiles can't be replaced)
+      return cell; // Prior was empty: use recognition (new letter or still empty)
     })
   );
 }
@@ -70,6 +74,7 @@ export async function recognizeBoard(
     try {
       grid = await fixBoardWithGemini(grid);
       grid = ensure15x15(grid);
+      if (prior) grid = mergeWithPrior(grid, prior);
     } catch (err) {
       console.warn('Gemini fix skipped:', err);
     }
