@@ -228,10 +228,33 @@ function applyPostProcessingOnly(grid) {
   return fixed;
 }
 
-const RECOGNIZE_PROMPT = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
+function buildRecognizePrompt(priorGrid) {
+  const base = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
 Rules: Row 0=top, Col 0=left. Empty="", letter=uppercase A-Z, blank="?".
-Common confusions: O/0, I/1/l, S/5, E/F, R/K.
+Common confusions: O/0, I/1/l, S/5, E/F, R/K.`;
+  if (priorGrid && Array.isArray(priorGrid) && priorGrid.length === 15) {
+    const priorStr = JSON.stringify(
+      priorGrid.map((row) =>
+        (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))
+      )
+    );
+    return `${base}
+
+IMPORTANT - USE THE PRIOR BOARD: The image shows the board after a move. The previous valid board state is provided below.
+- Only 2–7 cells typically change per turn (one new word).
+- Use the prior state as the DEFAULT for every cell.
+- Only UPDATE cells where you clearly see NEW letters placed.
+- Do NOT re-read the entire board—focus on what changed.
+- If a cell is unclear or could be glare/noise, keep the prior value.
+
+Previous board state (use as default):
+${priorStr}
+
+Output ONLY a JSON array of exactly 15 rows. Each row is an array of exactly 15 cells. No markdown.`;
+  }
+  return `${base}
 Output ONLY a JSON array of 15 rows, each 15 cells. No markdown.`;
+}
 
 function normalizeRecognizedGrid(parsed) {
   return (parsed ?? []).slice(0, 15).map((row) =>
@@ -244,7 +267,8 @@ function normalizeRecognizedGrid(parsed) {
   );
 }
 
-async function recognizeBoard(imageBase64, mimeType, apiKey) {
+async function recognizeBoard(imageBase64, mimeType, apiKey, priorBoard) {
+  const prompt = buildRecognizePrompt(priorBoard);
   const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -253,7 +277,7 @@ async function recognizeBoard(imageBase64, mimeType, apiKey) {
         {
           role: 'user',
           parts: [
-            { text: RECOGNIZE_PROMPT },
+            { text: prompt },
             { inline_data: { mime_type: mimeType || 'image/jpeg', data: imageBase64 } },
           ],
         },
@@ -314,13 +338,14 @@ const server = createServer(async (req, res) => {
     }
     const image = parsed?.image;
     const mimeType = parsed?.mimeType || 'image/jpeg';
+    const priorBoard = Array.isArray(parsed?.priorBoard) && parsed.priorBoard.length === 15 ? parsed.priorBoard : null;
     if (!image || typeof image !== 'string') {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ERROR', message: 'Missing image (base64)' }));
       return;
     }
     try {
-      const grid = await recognizeBoard(image, mimeType, apiKey);
+      const grid = await recognizeBoard(image, mimeType, apiKey, priorBoard);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'OK', grid }));
     } catch (err) {

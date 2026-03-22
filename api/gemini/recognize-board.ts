@@ -2,20 +2,46 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
-const RECOGNIZE_PROMPT = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
+function buildRecognizePrompt(priorGrid: (string | null)[][] | null): string {
+  const base = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
 
 Rules:
 - Row 0 is the top row, column 0 is the leftmost column.
 - Empty cell = "" (empty string)
 - Letter tile = single uppercase letter (A-Z)
 - Blank/wildcard tile = "?"
-- Read each cell carefully. Common OCR confusions: O vs 0, I vs 1/l, S vs 5, E vs F, R vs K.
-- The board may be at an angle—read the letters as they appear on the tiles.
+- Common OCR confusions: O vs 0, I vs 1/l, S vs 5, E vs F, R vs K.
+- The board may be at an angle—read the letters as they appear on the tiles.`;
+
+  if (priorGrid && priorGrid.length === 15) {
+    const priorStr = JSON.stringify(
+      priorGrid.map((row) =>
+        (row ?? []).slice(0, 15).map((c) => (c === null || c === '' ? '' : c === ' ' ? '?' : c))
+      )
+    );
+    return `${base}
+
+IMPORTANT - USE THE PRIOR BOARD: The image shows the board after a move. The previous valid board state is provided below.
+- Only 2–7 cells typically change per turn (one new word).
+- Use the prior state as the DEFAULT for every cell.
+- Only UPDATE cells where you clearly see NEW letters placed.
+- Do NOT re-read the entire board—focus on what changed.
+- If a cell is unclear or could be glare/noise, keep the prior value.
+
+Previous board state (use as default):
+${priorStr}
+
+Output ONLY a JSON array of exactly 15 rows. Each row is an array of exactly 15 cells.
+Return ONLY valid JSON. No markdown, no explanation.`;
+  }
+
+  return `${base}
 
 Output ONLY a JSON array of exactly 15 rows. Each row is an array of exactly 15 cells.
 Example format: [["","","H","I","",""],...]
 
 Return ONLY valid JSON. No markdown, no explanation.`;
+}
 
 function tryParseGridJson(str: string): (string | null)[][] | null {
   const cleaned = str.replace(/^```json\s*|\s*```$/g, '').trim();
@@ -52,10 +78,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { image, mimeType = 'image/jpeg' } = req.body as { image?: string; mimeType?: string };
+    const { image, mimeType = 'image/jpeg', priorBoard } = req.body as {
+      image?: string;
+      mimeType?: string;
+      priorBoard?: (string | null)[][];
+    };
     if (!image || typeof image !== 'string') {
       return res.status(400).json({ status: 'ERROR', message: 'Missing image (base64)' });
     }
+
+    const priorGrid =
+      Array.isArray(priorBoard) && priorBoard.length === 15
+        ? priorBoard
+        : null;
+
+    const prompt = buildRecognizePrompt(priorGrid);
 
     const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
       method: 'POST',
@@ -65,7 +102,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           {
             role: 'user',
             parts: [
-              { text: RECOGNIZE_PROMPT },
+              { text: prompt },
               {
                 inline_data: {
                   mime_type: mimeType === 'image/png' ? 'image/png' : 'image/jpeg',

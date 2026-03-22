@@ -19,21 +19,37 @@ function ensure15x15(grid: (string | null)[][]): (string | null)[][] {
   return padded;
 }
 
+/** Merge prior board into result: fill any empty cells with prior values. */
+function mergeWithPrior(
+  grid: (string | null)[][],
+  prior: (string | null)[][]
+): (string | null)[][] {
+  return grid.map((row, r) =>
+    row.map((cell, c) => {
+      const p = prior[r]?.[c];
+      if (!cell && p) return p;
+      return cell;
+    })
+  );
+}
+
 /**
  * Recognize board state from a captured image.
- * Tries Gemini Vision first (direct image→board, most accurate).
- * Falls back to Scrabblecam OCR if Vision fails.
+ * Uses the last valid board as prior to simplify recognition (only new letters need to be read).
+ * Tries Gemini Vision first, falls back to Scrabblecam OCR.
  * Optionally applies Gemini fix to correct remaining errors.
  */
 export async function recognizeBoard(
   imageBlob: Blob,
-  options?: { useGeminiFix?: boolean }
+  options?: { useGeminiFix?: boolean; priorBoard?: (string | null)[][] | null }
 ): Promise<(string | null)[][]> {
+  const prior = options?.priorBoard;
   let grid: (string | null)[][];
 
   try {
-    grid = await recognizeBoardWithGeminiVision(imageBlob);
+    grid = await recognizeBoardWithGeminiVision(imageBlob, prior);
     grid = ensure15x15(grid);
+    if (prior) grid = mergeWithPrior(grid, prior);
   } catch (err) {
     console.warn('Gemini Vision recognition failed, falling back to Scrabblecam:', err);
     const response = await recognizeBoardFromImage(imageBlob);
@@ -47,6 +63,7 @@ export async function recognizeBoard(
     }
 
     grid = ensure15x15(parseBoardString(response.board));
+    if (prior) grid = mergeWithPrior(grid, prior);
   }
 
   if (options?.useGeminiFix !== false) {

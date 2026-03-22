@@ -69,7 +69,11 @@ function App() {
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       try {
         const prepared = await prepareImageForRecognition(file);
-        const grid = await recognizeBoard(prepared, { useGeminiFix });
+        const priorBoard = useGameStore.getState().board.toArray();
+        const grid = await recognizeBoard(prepared, {
+          useGeminiFix,
+          priorBoard: priorBoard.every((r) => r.every((c) => !c)) ? null : priorBoard,
+        });
         const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
         if (isHumanTurn) {
           const result = applyHumanMoveFromBoardImage(grid);

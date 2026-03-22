@@ -12,18 +12,28 @@ export interface RecognizeBoardResponse {
 }
 
 export async function recognizeBoardWithGeminiVision(
-  imageBlob: Blob
+  imageBlob: Blob,
+  priorBoard?: (string | null)[][] | null
 ): Promise<(string | null)[][]> {
   const base64 = await blobToBase64(imageBlob);
   const mimeType = imageBlob.type || 'image/jpeg';
 
+  const body: Record<string, unknown> = {
+    image: base64.includes(',') ? base64.split(',')[1]! : base64,
+    mimeType: mimeType.startsWith('image/') ? mimeType : 'image/jpeg',
+  };
+  if (
+    priorBoard &&
+    Array.isArray(priorBoard) &&
+    priorBoard.length === 15
+  ) {
+    body.priorBoard = priorBoard;
+  }
+
   const res = await fetch(`${API_BASE}/recognize-board`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      image: base64.includes(',') ? base64.split(',')[1]! : base64,
-      mimeType: mimeType.startsWith('image/') ? mimeType : 'image/jpeg',
-    }),
+    body: JSON.stringify(body),
   });
 
   const text = await res.text();
