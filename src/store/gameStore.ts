@@ -20,6 +20,11 @@ function isMoveValid(board: BoardState, tiles: PlacedTile[], trie: Trie): boolea
   return !noMainWord && invalidWords.length === 0;
 }
 
+/** Normalize word for dictionary lookup: uppercase letters only, no spaces or special chars. */
+function normalizeWord(w: string): string {
+  return w.replace(/[^A-Za-z]/g, '').toUpperCase();
+}
+
 /** Return invalid words (not in dictionary) and whether tiles fail to form a single main word. */
 function getMoveWordValidity(
   board: BoardState,
@@ -33,13 +38,15 @@ function getMoveWordValidity(
   if (!main) return { invalidWords: [], noMainWord: true };
 
   const invalidWords: string[] = [];
-  if (!trie.has(main.word)) invalidWords.push(main.word);
+  const mainNorm = normalizeWord(main.word);
+  if (mainNorm && !trie.has(mainNorm)) invalidWords.push(main.word);
 
   const direction = main.direction;
   const crossWords = testBoard.getCrossWords(tiles, direction);
   const uniqueCross = [...new Set(crossWords)];
   for (const w of uniqueCross) {
-    if (w.length > 1 && !trie.has(w)) invalidWords.push(w);
+    const wNorm = normalizeWord(w);
+    if (wNorm.length > 1 && !trie.has(wNorm)) invalidWords.push(w);
   }
   return { invalidWords, noMainWord: false };
 }

@@ -1,5 +1,8 @@
 import { Trie } from './Trie';
 
+// Bundled at build time — avoids fetch/404 issues when deployed as SPA
+import dictText from '../data/twl06.txt?raw';
+
 let dictionary: Trie | null = null;
 
 /**
@@ -9,9 +12,7 @@ let dictionary: Trie | null = null;
  */
 export async function loadDictionary(): Promise<Trie> {
   if (dictionary) return dictionary;
-  const response = await fetch('/twl06.txt');
-  const text = await response.text();
-  const words = text
+  const words = dictText
     .split(/\n/)
     .map((w) => w.trim().toLowerCase())
     .filter((w) => /^[a-z]{2,15}$/.test(w));
