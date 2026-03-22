@@ -30,28 +30,40 @@ interface SpeechRecognition extends EventTarget {
 
 export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | 'recapture' | null;
 
+/** Normalize transcript for matching: lowercase, collapse punctuation/spaces. */
+function normalize(t: string): string {
+  return t.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 function matchCommand(transcript: string): VoiceCommand {
-  const t = transcript.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const t = normalize(transcript);
+  if (!t || t.length < 2) return null;
+
   // Recapture first (before any capture-related match)
-  if (/\brecapture\b/.test(t)) return 'recapture';
-  // Capture triggers (no longer includes "capture" to avoid confusion with recapture)
-  if (/(your|you\s*re|you|ur)\s*turn\b/.test(t)) return 'your_turn';
-  if (/\b(done|finish|finished|finishing)\b/.test(t)) return 'your_turn';
-  if (/\b(i\s*am\s*done|i\s*m\s*done|im\s*done)\b/.test(t)) return 'your_turn';
-  if (/\b(go|lets\s*go|let's\s*go|okay\s*go|ok\s*go)\b/.test(t)) return 'your_turn';
-  if (/\b(ready|complete|submitted|submit|next)\b/.test(t)) return 'your_turn';
-  if (/\btake\s*(?:a\s*)?(?:picture|photo|shot)\b/.test(t)) return 'your_turn';
-  if (/\b(ok(?:ay)?|yeah|yes)\s*(?:go|done|finish)\b/.test(t)) return 'your_turn';
+  if (/\brecapture\b/.test(t) || /\bre\s*capture\b/.test(t)) return 'recapture';
+
+  // Capture triggers – broad patterns to catch misrecognitions
+  if (/(?:your|you['\u2019]?re|you|ur|year|yaw|yor)\s*turn\b/.test(t)) return 'your_turn';
+  if (/\b(?:done|don|dun|finish|finished|finishing|did\s*it)\b/.test(t)) return 'your_turn';
+  if (/\b(?:i\s*am\s*done|i\s*m\s*done|im\s*done|i'm\s*done)\b/.test(t)) return 'your_turn';
+  if (/\b(?:go|lets\s*go|let['\u2019]s\s*go|okay\s*go|ok\s*go|alright\s*go)\b/.test(t)) return 'your_turn';
+  if (/\b(?:ready|complete|submitted|submit|next|got\s*it)\b/.test(t)) return 'your_turn';
+  if (/\btake\s*(?:a\s*)?(?:picture|photo|shot|pick)\b/.test(t)) return 'your_turn';
+  if (/\b(?:ok(?:ay)?|yeah|yes|yep)\s*(?:go|done|finish)\b/.test(t)) return 'your_turn';
+  if (/\b(?:capture|snap|shoot)\b/.test(t)) return 'your_turn'; // after recapture check
+  if (/^(?:go|done)$/.test(t)) return 'your_turn'; // short confirmations
+
   if (/\bplay\b/.test(t)) return 'play';
   if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
   if (/\bchallenge\b/.test(t)) return 'challenge';
   if (/\bmy\s*turn\b/.test(t)) return 'my_turn';
-  if (/\bsuggest\b/.test(t) || /\bhint\b/.test(t)) return 'suggest';
+  if (/\b(?:suggest|hint)\b/.test(t)) return 'suggest';
   return null;
 }
 
 export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
   const [listening, setListening] = useState(false);
+  const [hasReceivedSpeech, setHasReceivedSpeech] = useState(false);
   const [supported, setSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -59,6 +71,8 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
   const onCommandRef = useRef(onCommand);
   const lastCommandTimeRef = useRef(0);
   const transcriptAccumRef = useRef('');
+  const hasReceivedSpeechRef = useRef(false);
+  const consecutiveFailuresRef = useRef(0);
   onCommandRef.current = onCommand;
 
   useEffect(() => {
@@ -80,6 +94,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     recognition.continuous = !isSafari; // iOS Safari: continuous often stops after first result
     recognition.interimResults = true;
     recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
+    (recognition as any).maxAlternatives = 3;
 
     const doRestart = () => {
       if (restartScheduledRef.current || !activeRef.current) return;
@@ -90,8 +105,20 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
         if (!activeRef.current) return;
         const next = createAndStartRecognitionRef.current();
         if (next) {
-          recognitionRef.current = next;
-          next.start();
+          try {
+            next.start();
+            recognitionRef.current = next;
+            consecutiveFailuresRef.current = 0;
+          } catch {
+            consecutiveFailuresRef.current += 1;
+            recognitionRef.current = null;
+            if (consecutiveFailuresRef.current >= 3) {
+              setListening(false);
+              setError('Could not start microphone');
+            } else {
+              doRestart();
+            }
+          }
         } else {
           setListening(false);
         }
@@ -100,33 +127,34 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       if (!activeRef.current) return;
+      consecutiveFailuresRef.current = 0;
+      hasReceivedSpeechRef.current = true;
+      setHasReceivedSpeech(true);
       let chunk = '';
       let hadFinal = false;
+      let lastResultWithAlts: SpeechRecognitionResult | null = null;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
-        const t = (result[0].transcript || '').trim();
+        const t = (result[0]?.transcript || '').trim();
         chunk += t + ' ';
         if (result.isFinal) hadFinal = true;
+        if ((result.length ?? 0) > 1) lastResultWithAlts = result;
         if (debugRef.current) console.log('[voice]', result.isFinal ? 'final' : 'interim', t ? JSON.stringify(t) : '(empty)');
       }
       transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
-      if (transcriptAccumRef.current.length > 150) {
-        transcriptAccumRef.current = transcriptAccumRef.current.slice(-150);
+      if (transcriptAccumRef.current.length > 200) {
+        transcriptAccumRef.current = transcriptAccumRef.current.slice(-200);
       }
-      if (!transcriptAccumRef.current) return;
-
-      // First, try to match on just the latest chunk (helps ignore old noise).
-      let cmd: VoiceCommand | null = null;
-      if (chunk.trim()) {
-        cmd = matchCommand(chunk);
-        if (debugRef.current) console.log('[voice] chunk check', JSON.stringify(chunk.trim()), '→', cmd ?? 'no match');
+      const toCheck = transcriptAccumRef.current;
+      let cmd: VoiceCommand | null = matchCommand(toCheck);
+      if (!cmd && lastResultWithAlts) {
+        for (let j = 1; j < (lastResultWithAlts.length ?? 1); j++) {
+          const alt = (lastResultWithAlts[j]?.transcript || '').trim();
+          if (alt && (cmd = matchCommand(alt))) break;
+        }
       }
-      // If no match on the latest phrase, fall back to the accumulated transcript.
-      if (!cmd) {
-        const toCheck = transcriptAccumRef.current;
-        cmd = matchCommand(toCheck);
-        if (debugRef.current) console.log('[voice] accum check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
-      }
+      if (!cmd && toCheck) cmd = matchCommand(toCheck.split(/\s+/).slice(-5).join(' '));
+      if (debugRef.current) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
       if (cmd) {
         const now = Date.now();
         if (now - lastCommandTimeRef.current < 1500) return;
@@ -135,15 +163,18 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
         if (debugRef.current) console.log('[voice] triggering', cmd);
         onCommandRef.current?.(cmd);
       }
-      // iOS Safari: onresult stops firing after first phrase—restart here
       if (isSafari && hadFinal) doRestart();
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (debugRef.current) console.log('[voice] error', event.error);
       if (event.error === 'aborted') return;
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        setListening(false);
+        setError('Microphone access denied');
+        return;
+      }
       if (event.error !== 'no-speech') setError(event.error);
-      // no-speech, network, etc.: restart to keep listening
       if (activeRef.current) doRestart();
     };
 
@@ -167,6 +198,9 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     }
     recognitionRef.current?.abort();
     setError(null);
+    setHasReceivedSpeech(false);
+    hasReceivedSpeechRef.current = false;
+    consecutiveFailuresRef.current = 0;
     activeRef.current = true;
     transcriptAccumRef.current = '';
     if (debugRef.current) console.log('[voice] Debug ON – recognition starting. Speak to see transcripts.');
@@ -186,6 +220,8 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
 
   const stopListening = useCallback(() => {
     activeRef.current = false;
+    setHasReceivedSpeech(false);
+    hasReceivedSpeechRef.current = false;
     transcriptAccumRef.current = '';
     if (recognitionRef.current) {
       const rec = recognitionRef.current;
@@ -220,12 +256,18 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
           if (!activeRef.current) return;
           const next = createAndStartRecognitionRef.current();
           if (next) {
-            recognitionRef.current = next;
             try {
               next.start();
+              recognitionRef.current = next;
+              consecutiveFailuresRef.current = 0;
               setListening(true);
             } catch {
               recognitionRef.current = null;
+              consecutiveFailuresRef.current += 1;
+              if (consecutiveFailuresRef.current >= 3) {
+                setListening(false);
+                setError('Microphone unavailable');
+              }
             }
           }
         }, delay);
@@ -234,5 +276,5 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     return () => clearInterval(id);
   }, [supported, isSafari]);
 
-  return { listening, supported, error, startListening, stopListening };
+  return { listening, supported, error, hasReceivedSpeech, startListening, stopListening };
 }

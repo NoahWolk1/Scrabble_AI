@@ -19,8 +19,8 @@ export function VoiceCaptureTrigger({ onCapture, onRecapture, active, requireTap
   const onRecaptureRef = useRef(onRecapture);
   onRecaptureRef.current = onRecapture;
 
-  const { supported, listening, startListening, stopListening } = useSpeechRecognition((cmd) => {
-    if (cmd === 'your_turn' || cmd === 'my_turn') onCaptureRef.current();
+  const { supported, listening, hasReceivedSpeech, startListening, stopListening } = useSpeechRecognition((cmd) => {
+    if (cmd === 'your_turn') onCaptureRef.current();
     if (cmd === 'recapture') onRecaptureRef.current?.();
   });
 
@@ -45,12 +45,14 @@ export function VoiceCaptureTrigger({ onCapture, onRecapture, active, requireTap
           listening ? stopListening() : startListening();
         }}
         className={`w-full py-3 px-4 rounded-xl font-semibold touch-manipulation transition-all ${
-          listening
+          !listening
+            ? 'bg-stone-200 dark:bg-stone-600 hover:bg-stone-300 dark:hover:bg-stone-500 text-stone-800 dark:text-white border border-stone-300/50 dark:border-stone-500/50'
+            : hasReceivedSpeech
             ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-md'
-            : 'bg-stone-200 dark:bg-stone-600 hover:bg-stone-300 dark:hover:bg-stone-500 text-stone-800 dark:text-white border border-stone-300/50 dark:border-stone-500/50'
+            : 'bg-amber-500 hover:bg-amber-600 text-white shadow-md'
         }`}
       >
-        {listening ? 'Listening' : 'Listen'}
+        {!listening ? 'Listen' : hasReceivedSpeech ? 'Listening' : 'Listening…'}
       </button>
     );
   }
