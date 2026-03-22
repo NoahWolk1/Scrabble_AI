@@ -228,6 +228,53 @@ function applyPostProcessingOnly(grid) {
   return fixed;
 }
 
+const RECOGNIZE_PROMPT = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
+Rules: Row 0=top, Col 0=left. Empty="", letter=uppercase A-Z, blank="?".
+Common confusions: O/0, I/1/l, S/5, E/F, R/K.
+Output ONLY a JSON array of 15 rows, each 15 cells. No markdown.`;
+
+function normalizeRecognizedGrid(parsed) {
+  return (parsed ?? []).slice(0, 15).map((row) =>
+    (Array.isArray(row) ? row : []).slice(0, 15).map((c) => {
+      if (c === null || c === undefined || c === '') return null;
+      if (c === '?' || c === ' ') return ' ';
+      const s = String(c).trim();
+      return s.length === 1 && /[A-Za-z]/.test(s) ? s.toUpperCase() : null;
+    })
+  );
+}
+
+async function recognizeBoard(imageBase64, mimeType, apiKey) {
+  const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: RECOGNIZE_PROMPT },
+            { inline_data: { mime_type: mimeType || 'image/jpeg', data: imageBase64 } },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 4096, responseMimeType: 'application/json' },
+    }),
+  });
+
+  if (!response.ok) throw new Error(`Gemini API: ${response.status}`);
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) throw new Error('Empty Gemini response');
+
+  const cleaned = text.replace(/^```json\s*|\s*```$/g, '').trim();
+  let parsed = tryParseGridJson(cleaned);
+  if (!parsed || !Array.isArray(parsed) || parsed.length !== 15) throw new Error('Could not parse grid');
+
+  return normalizeRecognizedGrid(parsed);
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -239,7 +286,8 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== 'POST' || req.url !== '/fix-board') {
+  const path = (req.url || '').split('?')[0];
+  if (req.method !== 'POST' || (path !== '/fix-board' && path !== '/recognize-board')) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Not found' }));
     return;
@@ -254,6 +302,34 @@ const server = createServer(async (req, res) => {
 
   let body = '';
   for await (const chunk of req) body += chunk;
+
+  if (path === '/recognize-board') {
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid JSON' }));
+      return;
+    }
+    const image = parsed?.image;
+    const mimeType = parsed?.mimeType || 'image/jpeg';
+    if (!image || typeof image !== 'string') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Missing image (base64)' }));
+      return;
+    }
+    try {
+      const grid = await recognizeBoard(image, mimeType, apiKey);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'OK', grid }));
+    } catch (err) {
+      console.warn('Gemini Vision recognize failed:', err?.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Recognition failed').replace(/[^\x20-\x7E]/g, '') }));
+    }
+    return;
+  }
 
   let grid;
   try {
