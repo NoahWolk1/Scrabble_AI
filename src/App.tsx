@@ -39,6 +39,7 @@ function App() {
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [useGeminiFix, setUseGeminiFix] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [debugRecognizedGrid, setDebugRecognizedGrid] = useState<(string | null)[][] | null>(null);
   const setBoardFromRecognition = useGameStore((s) => s.setBoardFromRecognition);
   const setHumanRack = useGameStore((s) => s.setHumanRack);
   const applyHumanMoveFromBoardImage = useGameStore((s) => s.applyHumanMoveFromBoardImage);
@@ -73,9 +74,13 @@ function App() {
         if (isHumanTurn) {
           const result = applyHumanMoveFromBoardImage(grid);
           if (!result.success) {
+            setDebugRecognizedGrid(grid);
             showToast(result.message ?? 'Recognition failed');
           } else if (result.lostTurn) {
+            setDebugRecognizedGrid(grid);
             showToast(result.message ?? 'Invalid move—you lost your turn');
+          } else {
+            setDebugRecognizedGrid(null);
           }
         } else {
           setBoardFromRecognition(grid);
@@ -258,6 +263,30 @@ function App() {
             </summary>
             <div className="px-4 pb-3 pt-0">
               <Rack letters={aiRack} label="AI rack" />
+            </div>
+          </details>
+
+          <details className="group rounded-2xl bg-stone-100/80 dark:bg-stone-800/40 border border-stone-200/60 dark:border-stone-700/60 overflow-hidden">
+            <summary className="cursor-pointer px-4 py-2.5 text-sm text-stone-500 dark:text-stone-400 hover:text-stone-700 dark:hover:text-stone-300 list-none select-none">
+              Spoiler: Recognized board (for debugging invalid moves)
+            </summary>
+            <div className="px-4 pb-3 pt-0">
+              {debugRecognizedGrid ? (
+                <div className="font-mono text-xs overflow-x-auto">
+                  <p className="text-stone-500 dark:text-stone-400 mb-1">
+                    Last capture that failed validation — what the app saw:
+                  </p>
+                  <pre className="bg-stone-200/50 dark:bg-stone-900/50 rounded-lg p-2 inline-block">
+                    {debugRecognizedGrid.map((row) =>
+                      row.map((c) => (c ?? '·')).join(' ')
+                    ).join('\n')}
+                  </pre>
+                </div>
+              ) : (
+                <p className="text-stone-500 dark:text-stone-400 text-sm">
+                  No failed capture yet. When a move is rejected as invalid, the recognized board will appear here.
+                </p>
+              )}
             </div>
           </details>
 
