@@ -5,6 +5,7 @@ import {
 } from './scrabblecamApi';
 import { recognizeBoardWithGeminiVision } from './geminiRecognizeApi';
 import { fixBoardWithGemini } from './geminiFixApi';
+import { alignRecognizedGridToPrior } from './alignRecognizedGridToPrior';
 import {
   boardRecLog,
   boardRecWarn,
@@ -109,6 +110,16 @@ export async function recognizeBoard(
         filledCells: countFilledCells(grid),
         newVsPrior: listNewVsPrior(prior, grid),
       });
+      const aligned = alignRecognizedGridToPrior(prior, grid);
+      grid = aligned.grid;
+      boardRecLog('align to prior (shift/transpose)', {
+        dr: aligned.dr,
+        dc: aligned.dc,
+        transposed: aligned.transposed,
+        score: aligned.score,
+        anchors: aligned.anchorCount,
+        applied: aligned.applied,
+      });
       grid = mergeWithPrior(grid, prior);
       boardRecLog('after mergeWithPrior', {
         newVsPrior: listNewVsPrior(prior, grid),
@@ -120,6 +131,15 @@ export async function recognizeBoard(
       boardRecLog('after Scrabblecam (fallback)', {
         filledCells: countFilledCells(grid),
         newVsPrior: listNewVsPrior(prior, grid),
+      });
+      const alignedFb = alignRecognizedGridToPrior(prior, grid);
+      grid = alignedFb.grid;
+      boardRecLog('align to prior (fallback)', {
+        dr: alignedFb.dr,
+        dc: alignedFb.dc,
+        transposed: alignedFb.transposed,
+        score: alignedFb.score,
+        applied: alignedFb.applied,
       });
       grid = mergeWithPrior(grid, prior);
       boardRecLog('after mergeWithPrior (fallback)', {

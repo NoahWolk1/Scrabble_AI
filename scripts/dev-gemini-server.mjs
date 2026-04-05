@@ -230,8 +230,9 @@ function applyPostProcessingOnly(grid) {
 
 function buildRecognizePrompt(priorGrid) {
   const base = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
-Rules: Row 0=top, Col 0=left. Empty="", letter=uppercase A-Z, blank="?".
-Common confusions: O/0, I/1/l, S/5, E/F, R/K.`;
+Coordinate system: 0-based indices. Row 0=TOP, row 14=BOTTOM. Col 0=LEFT, col 14=RIGHT.
+Center star square is row 7, col 7 — use it to align the grid. First JSON row = top of board.
+Empty="", letter=A-Z, blank="?". Confusions: O/0, I/1/l, S/5, E/F, R/K.`;
   if (priorGrid && Array.isArray(priorGrid) && priorGrid.length === 15) {
     const priorStr = JSON.stringify(
       priorGrid.map((row) =>

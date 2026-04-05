@@ -5,13 +5,17 @@ const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemi
 function buildRecognizePrompt(priorGrid: (string | null)[][] | null): string {
   const base = `You are reading a Scrabble board from a photo. Extract the 15×15 grid of letters.
 
+Coordinate system (critical — follow exactly):
+- Indices are 0-based: row 0 = TOP edge of the board, row 14 = BOTTOM. Column 0 = LEFT edge, column 14 = RIGHT.
+- The center premium star square is at row 7, column 7. Use it to align: that cell is the middle of the 15×15 grid.
+- First JSON row = top row of the board; first cell in each row = leftmost column.
+
 Rules:
-- Row 0 is the top row, column 0 is the leftmost column.
 - Empty cell = "" (empty string)
 - Letter tile = single uppercase letter (A-Z)
 - Blank/wildcard tile = "?"
 - Common OCR confusions: O vs 0, I vs 1/l, S vs 5, E vs F, R vs K.
-- The board may be at an angle—read the letters as they appear on the tiles.`;
+- The board may be at an angle—still map each tile to the correct row/column index as above.`;
 
   if (priorGrid && priorGrid.length === 15) {
     const priorStr = JSON.stringify(
