@@ -1,7 +1,9 @@
 /**
  * Recognize Scrabble board from image using Gemini Vision.
- * Primary recognition path—more accurate than OCR for letter reading.
+ * Used when a prior board exists (diff-style read); empty boards use Scrabblecam in BoardRecognizer.
  */
+
+import { boardRecLog } from './boardRecognitionLog';
 
 const API_BASE = '/api/gemini';
 
@@ -30,6 +32,11 @@ export async function recognizeBoardWithGeminiVision(
     body.priorBoard = priorBoard;
   }
 
+  boardRecLog('POST /api/gemini/recognize-board', {
+    bytes: imageBlob.size,
+    withPrior: !!body.priorBoard,
+  });
+
   const res = await fetch(`${API_BASE}/recognize-board`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -45,9 +52,11 @@ export async function recognizeBoardWithGeminiVision(
   }
 
   if (data.status === 'OK' && Array.isArray(data.grid)) {
+    boardRecLog('recognize-board OK', { httpStatus: res.status });
     return data.grid;
   }
 
+  boardRecLog('recognize-board ERROR', { httpStatus: res.status, message: data.message });
   throw new Error(data.message ?? `Recognition failed: ${res.status}`);
 }
 

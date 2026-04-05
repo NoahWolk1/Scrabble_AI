@@ -10,6 +10,7 @@ import { useCamera } from './hooks/useCamera';
 import { speak, unlockSpeech } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
 import { recognizeBoard } from './cv/BoardRecognizer';
+import { boardRecLog } from './cv/boardRecognitionLog';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
 import { prepareImageForRecognition } from './cv/imageUtils';
 
@@ -77,6 +78,11 @@ function App() {
         const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
         if (isHumanTurn) {
           const result = applyHumanMoveFromBoardImage(grid);
+          boardRecLog('applyHumanMoveFromBoardImage', {
+            success: result.success,
+            lostTurn: 'lostTurn' in result ? result.lostTurn : undefined,
+            message: result.message,
+          });
           if (!result.success) {
             setDebugRecognizedGrid(grid);
             showToast(result.message ?? 'Recognition failed');
