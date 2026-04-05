@@ -13,6 +13,7 @@ import { recognizeBoard } from './cv/BoardRecognizer';
 import { boardRecLog } from './cv/boardRecognitionLog';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
 import { prepareImageForRecognition } from './cv/imageUtils';
+import { dewarpBoardImageIfPossible } from './cv/boardPerspectiveWarp';
 
 function App() {
   const {
@@ -70,8 +71,9 @@ function App() {
       await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
       try {
         const prepared = await prepareImageForRecognition(file);
+        const dewarped = await dewarpBoardImageIfPossible(prepared);
         const priorBoard = useGameStore.getState().board.toArray();
-        const grid = await recognizeBoard(prepared, {
+        const grid = await recognizeBoard(dewarped, {
           useGeminiFix,
           priorBoard: priorBoard.every((r) => r.every((c) => !c)) ? null : priorBoard,
         });
