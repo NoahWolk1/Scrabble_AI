@@ -4,7 +4,6 @@ import {
   parseBoardString,
 } from './scrabblecamApi';
 import { recognizeBoardWithGeminiVision } from './geminiRecognizeApi';
-import { fixBoardWithGemini } from './geminiFixApi';
 import { alignRecognizedGridToPrior } from './alignRecognizedGridToPrior';
 import {
   boardRecLog,
@@ -65,10 +64,9 @@ function mergeWithPrior(
  */
 export async function recognizeBoard(
   imageBlob: Blob,
-  options?: { useGeminiFix?: boolean; priorBoard?: (string | null)[][] | null }
+  options?: { priorBoard?: (string | null)[][] | null }
 ): Promise<(string | null)[][]> {
   const prior = options?.priorBoard;
-  const useFix = options?.useGeminiFix !== false;
   let grid: (string | null)[][];
   let primaryPath: string;
 
@@ -76,7 +74,6 @@ export async function recognizeBoard(
     imageBytes: imageBlob.size,
     hasPrior: !!prior,
     priorFilled: prior ? countFilledCells(prior) : 0,
-    useGeminiFix: useFix,
   });
 
   if (!prior) {
@@ -147,28 +144,6 @@ export async function recognizeBoard(
         newVsPrior: listNewVsPrior(prior, grid),
       });
     }
-  }
-
-  if (useFix) {
-    try {
-      boardRecLog('running Gemini fix-board…', { primaryPath });
-      grid = await fixBoardWithGemini(grid);
-      grid = ensure15x15(grid);
-      boardRecLog('after Gemini fix', {
-        filledCells: countFilledCells(grid),
-        ...(prior ? { newVsPrior: listNewVsPrior(prior, grid) } : {}),
-      });
-      if (prior) {
-        grid = mergeWithPrior(grid, prior);
-        boardRecLog('after mergeWithPrior (post-fix)', {
-          newVsPrior: listNewVsPrior(prior, grid),
-        });
-      }
-    } catch (err) {
-      boardRecWarn('Gemini fix skipped', err);
-    }
-  } else {
-    boardRecLog('Gemini fix skipped (disabled in UI)');
   }
 
   boardRecLog('done', {

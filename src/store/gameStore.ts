@@ -108,8 +108,62 @@ interface TurnSnapshot {
 
 function applyMove(board: BoardState, tiles: PlacedTile[]): void {
   for (const t of tiles) {
-    board.set(t.row, t.col, t.letter);
+    board.setTile(t.row, t.col, t.letter, !!t.isBlank);
   }
+}
+
+/** Validate a placement can be paid for by the given rack (letters + blanks). */
+function canPayTilesFromRack(
+  rack: string[],
+  tiles: PlacedTile[]
+): { ok: boolean; normalizedTiles: PlacedTile[] } {
+  const counts: Record<string, number> = {};
+  for (const c of rack) counts[c] = (counts[c] ?? 0) + 1;
+
+  const normalized: PlacedTile[] = [];
+  for (const t of tiles) {
+    const letter = t.letter.toUpperCase();
+    if (t.isBlank) {
+      if ((counts[' '] ?? 0) > 0) {
+        counts[' ']!--;
+        normalized.push({ ...t, letter, isBlank: true });
+      } else {
+        return { ok: false, normalizedTiles: [] };
+      }
+      continue;
+    }
+
+    if ((counts[letter] ?? 0) > 0) {
+      counts[letter]!--;
+      normalized.push({ ...t, letter, isBlank: false });
+      continue;
+    }
+
+    // Substitute a blank if available
+    if ((counts[' '] ?? 0) > 0) {
+      counts[' ']!--;
+      normalized.push({ ...t, letter, isBlank: true });
+      continue;
+    }
+
+    return { ok: false, normalizedTiles: [] };
+  }
+
+  return { ok: true, normalizedTiles: normalized };
+}
+
+function removeTilesFromRackStrict(rack: string[], tiles: PlacedTile[]): string[] {
+  const copy = [...rack];
+  for (const t of tiles) {
+    if (t.isBlank) {
+      const blankIdx = copy.indexOf(' ');
+      if (blankIdx >= 0) copy.splice(blankIdx, 1);
+      continue;
+    }
+    const idx = copy.indexOf(t.letter);
+    if (idx >= 0) copy.splice(idx, 1);
+  }
+  return copy;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -235,17 +289,24 @@ export const useGameStore = create<GameStore>((set, get) => ({
         ];
         for (const idx of order) {
           const parsed = parseScrabblecamMove(res.moves[idx], board.toArray());
-          if (parsed && parsed.tiles.length > 0 && isMoveValid(board, parsed.tiles, trie)) {
+          if (!parsed || parsed.tiles.length === 0) continue;
+          if (!isMoveValid(board, parsed.tiles, trie)) continue;
+          const paid = canPayTilesFromRack(aiRack, parsed.tiles);
+          if (!paid.ok) continue;
+          if (paid.normalizedTiles.length === 0) continue;
+
             bestMove = {
-              tiles: parsed.tiles,
+              tiles: paid.normalizedTiles,
               word: parsed.word,
               score: parsed.score,
-              direction: parsed.tiles[0].row === parsed.tiles[parsed.tiles.length - 1].row ? 'horizontal' : 'vertical',
+              direction:
+                paid.normalizedTiles[0].row === paid.normalizedTiles[paid.normalizedTiles.length - 1].row
+                  ? 'horizontal'
+                  : 'vertical',
               row: parsed.row,
               col: parsed.col,
             };
             break;
-          }
         }
       }
     } catch (err) {
@@ -258,9 +319,12 @@ export const useGameStore = create<GameStore>((set, get) => ({
       const preferredIdx = pickMoveIndex(sorted.length);
       for (let i = 0; i < sorted.length; i++) {
         const picked = sorted[(preferredIdx + i) % sorted.length];
-        if (picked && isMoveValid(board, picked.tiles, trie)) {
+        if (!picked) continue;
+        if (!isMoveValid(board, picked.tiles, trie)) continue;
+        const paid = canPayTilesFromRack(aiRack, picked.tiles);
+        if (!paid.ok) continue;
           bestMove = {
-            tiles: picked.tiles,
+            tiles: paid.normalizedTiles,
             word: picked.word,
             score: picked.score,
             direction: picked.direction,
@@ -268,7 +332,6 @@ export const useGameStore = create<GameStore>((set, get) => ({
             col: picked.col,
           };
           break;
-        }
       }
     }
 
@@ -277,13 +340,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    const rackCopy = [...aiRack];
-    for (const t of bestMove.tiles) {
-      const idx = rackCopy.indexOf(t.letter);
-      const blankIdx = rackCopy.indexOf(' ');
-      if (idx >= 0) rackCopy.splice(idx, 1);
-      else if (blankIdx >= 0) rackCopy.splice(blankIdx, 1);
-    }
+    const rackCopy = removeTilesFromRackStrict(aiRack, bestMove.tiles);
     const { drawn, remaining } = drawTiles(bag, RACK_SIZE - rackCopy.length);
 
     const newBoard = board.clone();
@@ -353,13 +410,15 @@ export const useGameStore = create<GameStore>((set, get) => ({
   setPendingMove: (tiles) => set({ pendingMove: tiles }),
 
   setBoardFromRecognition: (grid) => {
-    const normalized = grid.map(row =>
-      row.map(cell =>
-        cell === ' ' ? null : cell && /^[A-Z]$/.test(cell) ? cell : null
-      )
+    const current = get().board;
+    const normalized = grid.map((row) =>
+      row.map((cell) => (cell && /^[A-Z]$/.test(cell) ? cell : null))
+    );
+    const blanks = current.blanksToArray().map((row, r) =>
+      row.map((isBlank, c) => isBlank && current.get(r, c) === normalized[r]?.[c])
     );
     set({
-      board: new BoardState(normalized),
+      board: new BoardState(normalized, blanks),
       isFirstMove: normalized.every(r => r.every(c => !c)),
       status: 'Board updated from camera.',
     });

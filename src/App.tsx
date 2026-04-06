@@ -38,7 +38,6 @@ function App() {
   const { stream, error, loading, startCamera, stopCamera } = useCamera();
   const [recognizing, setRecognizing] = useState(false);
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
-  const [useGeminiFix, setUseGeminiFix] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [debugRecognizedGrid, setDebugRecognizedGrid] = useState<(string | null)[][] | null>(null);
   const setBoardFromRecognition = useGameStore((s) => s.setBoardFromRecognition);
@@ -72,7 +71,6 @@ function App() {
         const prepared = await prepareImageForRecognition(file);
         const priorBoard = useGameStore.getState().board.toArray();
         const grid = await recognizeBoard(prepared, {
-          useGeminiFix,
           priorBoard: priorBoard.every((r) => r.every((c) => !c)) ? null : priorBoard,
         });
         const isHumanTurn = useGameStore.getState().currentPlayer === 'human';
@@ -103,7 +101,7 @@ function App() {
         setRecognizing(false);
       }
     },
-    [applyHumanMoveFromBoardImage, setBoardFromRecognition, useGeminiFix, showToast]
+    [applyHumanMoveFromBoardImage, setBoardFromRecognition, showToast]
   );
 
   const handleRackImage = useCallback(
@@ -334,15 +332,6 @@ function App() {
                   className="rounded border-stone-300 text-amber-600 focus:ring-amber-400"
                 />
                 <span>Validate rack</span>
-              </label>
-              <label className="flex items-center gap-2 text-sm cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={useGeminiFix}
-                  onChange={(e) => setUseGeminiFix(e.target.checked)}
-                  className="rounded border-stone-300 text-amber-600 focus:ring-amber-400"
-                />
-                <span>AI fix (Gemini)</span>
               </label>
               <label className="flex items-center gap-2 text-sm cursor-pointer text-stone-600 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 transition-colors" title="Invalid words or tiles not in rack cause you to lose your turn">
                 <input

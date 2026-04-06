@@ -43,6 +43,7 @@ export function Board({ board, pendingTiles = [], onCellClick }: BoardProps) {
           const raw = letter ?? pending?.letter ?? '';
           const display = raw === ' ' ? '?' : raw;
           const isPending = !!pending;
+          const isBlankOnBoard = !isPending && !!letter && board.isBlankAt(row, col);
 
           return (
             <button
@@ -56,6 +57,7 @@ export function Board({ board, pendingTiles = [], onCellClick }: BoardProps) {
                 ${display ? 'text-stone-900 dark:text-white shadow-sm' : 'text-stone-500 dark:text-stone-400'}
                 ${onCellClick ? 'cursor-pointer hover:ring-2 hover:ring-amber-500/70 hover:ring-offset-0' : 'cursor-default'}
                 ${isPending ? 'ring-2 ring-amber-500 ring-offset-0' : ''}
+                ${isBlankOnBoard ? 'ring-2 ring-orange-500 ring-offset-0' : ''}
               `}
             >
               {SQUARE_LABELS[sqType] && !display ? (

@@ -72,4 +72,4 @@ npm run preview
 ## API proxies
 
 - **Scrabblecam**: `api/scrabblecam/*` proxies to scrabblecam.com (CORS workaround)
-- **Gemini**: `api/gemini/fix-board` cleans up OCR errors; requires `GEMINI_API_KEY` in production
+- **Gemini**: `api/gemini/recognize-board` reads the board from an image; requires `GEMINI_API_KEY` in production

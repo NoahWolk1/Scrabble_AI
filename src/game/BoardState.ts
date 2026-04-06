@@ -4,13 +4,20 @@ import type { PlacedTile } from './types';
 
 export class BoardState {
   private board: (string | null)[][];
+  private blanks: boolean[][];
 
-  constructor(existing?: (string | null)[][]) {
+  constructor(existing?: (string | null)[][], blanks?: boolean[][]) {
     this.board = existing
-      ? existing.map(row => [...row])
+      ? existing.map((row) => [...row])
       : Array(BOARD_SIZE)
           .fill(null)
           .map(() => Array(BOARD_SIZE).fill(null));
+
+    this.blanks = blanks
+      ? blanks.map((row) => [...row])
+      : Array(BOARD_SIZE)
+          .fill(null)
+          .map(() => Array(BOARD_SIZE).fill(false));
   }
 
   get(r: number, c: number): string | null {
@@ -24,22 +31,40 @@ export class BoardState {
     }
   }
 
+  /** Set a tile and whether it is a blank (0-point) tile. */
+  setTile(r: number, c: number, letter: string, isBlank = false): void {
+    if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+      this.board[r][c] = letter.toUpperCase();
+      this.blanks[r][c] = !!isBlank;
+    }
+  }
+
+  isBlankAt(r: number, c: number): boolean {
+    if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) return false;
+    return !!this.blanks[r][c];
+  }
+
   setCell(r: number, c: number, letter: string | null): BoardState {
     if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) return this;
-    const next = this.board.map((row, ri) =>
-      row.map((cell, ci) =>
-        ri === r && ci === c ? (letter ? letter.toUpperCase() : null) : cell
-      )
+    const nextBoard = this.board.map((row, ri) =>
+      row.map((cell, ci) => (ri === r && ci === c ? (letter ? letter.toUpperCase() : null) : cell))
     );
-    return new BoardState(next);
+    const nextBlanks = this.blanks.map((row, ri) =>
+      row.map((cell, ci) => (ri === r && ci === c ? false : cell))
+    );
+    return new BoardState(nextBoard, nextBlanks);
   }
 
   clone(): BoardState {
-    return new BoardState(this.board);
+    return new BoardState(this.board, this.blanks);
   }
 
   toArray(): (string | null)[][] {
     return this.board.map(row => [...row]);
+  }
+
+  blanksToArray(): boolean[][] {
+    return this.blanks.map((row) => [...row]);
   }
 
   static getSquareType(row: number, col: number): SquareType {
