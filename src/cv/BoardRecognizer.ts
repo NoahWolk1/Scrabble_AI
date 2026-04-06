@@ -99,20 +99,19 @@ export async function recognizeBoard(
       });
     }
   } else {
-    primaryPath = 'gemini-vision';
+    primaryPath = 'scrabblecam-primary';
     try {
-      boardRecLog('strategy: Gemini Vision with prior (diff-friendly)', {
+      boardRecLog('strategy: Scrabblecam primary; Gemini Vision fallback; optional Gemini fix', {
         priorFilled: countFilledCells(prior),
       });
-      grid = await recognizeBoardWithGeminiVision(imageBlob, prior);
-      grid = ensure15x15(grid);
-      boardRecLog('after Gemini Vision (raw)', {
+      grid = await readBoardScrabblecam(imageBlob);
+      boardRecLog('after Scrabblecam (primary)', {
         filledCells: countFilledCells(grid),
         newVsPrior: listNewVsPrior(prior, grid),
       });
       const aligned = alignRecognizedGridToPrior(prior, grid);
       grid = aligned.grid;
-      boardRecLog('align to prior (shift/transpose)', {
+      boardRecLog('align to prior (primary)', {
         dr: aligned.dr,
         dc: aligned.dc,
         transposed: aligned.transposed,
@@ -125,10 +124,11 @@ export async function recognizeBoard(
         newVsPrior: listNewVsPrior(prior, grid),
       });
     } catch (err) {
-      boardRecWarn('Gemini Vision failed → Scrabblecam fallback', err);
-      primaryPath = 'scrabblecam-fallback';
-      grid = await readBoardScrabblecam(imageBlob);
-      boardRecLog('after Scrabblecam (fallback)', {
+      boardRecWarn('Scrabblecam failed → Gemini Vision fallback', err);
+      primaryPath = 'gemini-vision-fallback';
+      grid = await recognizeBoardWithGeminiVision(imageBlob, prior);
+      grid = ensure15x15(grid);
+      boardRecLog('after Gemini Vision (fallback raw)', {
         filledCells: countFilledCells(grid),
         newVsPrior: listNewVsPrior(prior, grid),
       });
@@ -139,6 +139,7 @@ export async function recognizeBoard(
         dc: alignedFb.dc,
         transposed: alignedFb.transposed,
         score: alignedFb.score,
+        anchors: alignedFb.anchorCount,
         applied: alignedFb.applied,
       });
       grid = mergeWithPrior(grid, prior);
@@ -150,7 +151,7 @@ export async function recognizeBoard(
 
   if (useFix) {
     try {
-      boardRecLog('running Gemini fix-board…');
+      boardRecLog('running Gemini fix-board…', { primaryPath });
       grid = await fixBoardWithGemini(grid);
       grid = ensure15x15(grid);
       boardRecLog('after Gemini fix', {
