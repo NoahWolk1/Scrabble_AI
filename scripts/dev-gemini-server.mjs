@@ -152,7 +152,7 @@ function systemChatPrompt(gameState) {
 You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON.
 
 Goals:
-- Be concise and helpful.
+- Be extremely concise: reply in 1-2 short sentences (max ~25 words) unless the user explicitly asks for more detail.
 - If the user asks for move suggestions, propose 1-3 moves with brief rationale. If move candidates are provided, prefer them.
 - If it is the human's turn, acknowledge it and optionally suggest a next action.
 - If it is the AI's turn, acknowledge it and optionally explain what the AI might do.
@@ -234,7 +234,7 @@ const server = createServer(async (req, res) => {
     ...messages.map((m) => ({ text: `${m?.role === 'assistant' ? 'Assistant' : 'User'}: ${String(m?.content ?? '')}` })),
   ];
   try {
-    const reply = await geminiGenerateText(apiKey, parts, 0.4, 1024);
+    const reply = await geminiGenerateText(apiKey, parts, 0.3, 220);
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'OK', reply }));
   } catch (err) {

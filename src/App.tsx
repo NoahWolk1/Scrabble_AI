@@ -131,6 +131,9 @@ function App() {
         }
         const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply ?? '' };
         setChatMessages((prev) => [...prev, assistantMsg].slice(-30));
+        // Speak assistant replies out loud (browser TTS). Requires unlockSpeech() to have been
+        // called from a user gesture at least once (the app already does this on key buttons).
+        speak(assistantMsg.content);
       } catch (err) {
         console.error('Chat send failed:', err);
         showToast(err instanceof Error ? err.message : 'Chat failed');

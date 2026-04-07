@@ -11,7 +11,7 @@ function systemPrompt(gameState: unknown): string {
 You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON.
 
 Goals:
-- Be concise and helpful.
+- Be extremely concise: reply in 1-2 short sentences (max ~25 words) unless the user explicitly asks for more detail.
 - If the user asks for move suggestions, propose 1-3 moves with brief rationale. If move candidates are provided, prefer them.
 - If it is the human's turn, acknowledge it and optionally suggest a next action.
 - If it is the AI's turn, acknowledge it and optionally explain what the AI might do.
@@ -65,8 +65,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       body: JSON.stringify({
         contents,
         generationConfig: {
-          temperature: 0.4,
-          maxOutputTokens: 1024,
+          temperature: 0.3,
+          maxOutputTokens: 220,
         },
       }),
     });
