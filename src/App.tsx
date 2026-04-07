@@ -17,6 +17,8 @@ import { boardRecLog } from './cv/boardRecognitionLog';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
 import { prepareImageForRecognition } from './cv/imageUtils';
 import { useGeminiVoice } from './hooks/useGeminiVoice';
+import { wantsAiToTakeTurn } from './utils/voiceAiIntent';
+import { stripMarkdownForSpeech } from './utils/speechText';
 
 function App() {
   const {
@@ -46,7 +48,7 @@ function App() {
   const [debugRecognizedGrid, setDebugRecognizedGrid] = useState<(string | null)[][] | null>(null);
   const [chatEnabled, setChatEnabled] = useState(false);
   const [voiceAutoSendEnabled, setVoiceAutoSendEnabled] = useState(true);
-  const [geminiVoiceEnabled, setGeminiVoiceEnabled] = useState(false);
+  const [geminiVoiceEnabled, setGeminiVoiceEnabled] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [blankLetterPrompt, setBlankLetterPrompt] = useState<{
@@ -63,6 +65,8 @@ function App() {
   const recognizingRef = useRef(recognizing);
   recognizingRef.current = recognizing;
   const lastVoiceSentRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
+  /** Debounce AI "take your turn" nudges from voice or chat. */
+  const lastAiTurnNudgeRef = useRef(0);
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -116,7 +120,19 @@ function App() {
   const sendChat = useCallback(
     async (text: string) => {
       if (!chatEnabled || chatLoading) return;
-      const userMsg: ChatMessage = { role: 'user', content: text };
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      const gs = useGameStore.getState();
+      if (gs.currentPlayer === 'ai' && !gs.gameOver && gs.trie && wantsAiToTakeTurn(trimmed)) {
+        const now = Date.now();
+        if (now - lastAiTurnNudgeRef.current < 2000) return;
+        lastAiTurnNudgeRef.current = now;
+        void playAIMove();
+        return;
+      }
+
+      const userMsg: ChatMessage = { role: 'user', content: trimmed };
       const nextMessages = [...chatMessages, userMsg].slice(-30);
       setChatMessages(nextMessages);
       setChatLoading(true);
@@ -158,7 +174,7 @@ function App() {
         setChatMessages((prev) => [...prev, assistantMsg].slice(-30));
         // Speak assistant replies out loud (browser TTS). Requires unlockSpeech() to have been
         // called from a user gesture at least once (the app already does this on key buttons).
-        speak(assistantMsg.content);
+        speak(stripMarkdownForSpeech(assistantMsg.content));
       } catch (err) {
         console.error('Chat send failed:', err);
         showToast(err instanceof Error ? err.message : 'Chat failed');
@@ -166,7 +182,7 @@ function App() {
         setChatLoading(false);
       }
     },
-    [buildChatGameState, chatEnabled, chatLoading, chatMessages, showToast]
+    [buildChatGameState, chatEnabled, chatLoading, chatMessages, showToast, playAIMove]
   );
 
   const maybeAutoSendVoiceToChat = useCallback(
@@ -191,7 +207,7 @@ function App() {
       lastVoiceSentRef.current = { text: t, at: now };
       sendChat(t);
     },
-    [chatEnabled, sendChat, voiceAutoSendEnabled]
+    [chatEnabled, sendChat, voiceAutoSendEnabled, geminiVoiceEnabled]
   );
 
   function normalizeWhitespace(s: string): string {
