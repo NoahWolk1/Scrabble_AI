@@ -31,6 +31,15 @@ interface SpeechRecognition extends EventTarget {
 export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | 'recapture' | null;
 
 const VOICE_LISTEN_PREFIX = '[voice-listening]';
+const VOICE_TRANSCRIPT_PREFIX = '[voice-transcript]';
+
+function voiceTranscriptLog(isFinal: boolean, result: SpeechRecognitionResult): void {
+  const alternatives: string[] = [];
+  for (let j = 0; j < result.length; j++) {
+    alternatives.push((result[j]?.transcript ?? '').trim());
+  }
+  console.log(`${VOICE_TRANSCRIPT_PREFIX} ${isFinal ? 'final' : 'interim'}`, alternatives);
+}
 
 function voiceListenLog(message: string, detail?: unknown): void {
   if (detail !== undefined) {
@@ -149,11 +158,11 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       let lastResultWithAlts: SpeechRecognitionResult | null = null;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
+        voiceTranscriptLog(result.isFinal, result);
         const t = (result[0]?.transcript || '').trim();
         chunk += t + ' ';
         if (result.isFinal) hadFinal = true;
         if ((result.length ?? 0) > 1) lastResultWithAlts = result;
-        if (debugRef.current) console.log('[voice]', result.isFinal ? 'final' : 'interim', t ? JSON.stringify(t) : '(empty)');
       }
       transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
       if (transcriptAccumRef.current.length > 200) {
