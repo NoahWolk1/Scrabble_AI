@@ -30,6 +30,16 @@ interface SpeechRecognition extends EventTarget {
 
 export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | 'recapture' | null;
 
+const VOICE_LISTEN_PREFIX = '[voice-listening]';
+
+function voiceListenLog(message: string, detail?: unknown): void {
+  if (detail !== undefined) {
+    console.log(`${VOICE_LISTEN_PREFIX} ${message}`, detail);
+  } else {
+    console.log(`${VOICE_LISTEN_PREFIX} ${message}`);
+  }
+}
+
 /** Normalize transcript for matching: lowercase, collapse punctuation/spaces. */
 function normalize(t: string): string {
   return t.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -79,6 +89,10 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     setSupported(!!SR);
   }, []);
+
+  useEffect(() => {
+    voiceListenLog(listening ? 'listening: ON' : 'listening: OFF');
+  }, [listening]);
 
   const debugRef = useRef(false);
   debugRef.current = typeof window !== 'undefined' && (window.location.search.includes('debug=1') || localStorage.getItem('scrabble-voice-debug') === '1');
@@ -167,6 +181,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     };
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      voiceListenLog('recognition error', event.error);
       if (debugRef.current) console.log('[voice] error', event.error);
       if (event.error === 'aborted') return;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
@@ -191,8 +206,10 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
   createAndStartRecognitionRef.current = createAndStartRecognition;
 
   const startListening = useCallback(() => {
+    voiceListenLog('startListening() called');
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!SR) {
+      voiceListenLog('not supported (no SpeechRecognition API)');
       setError('Speech recognition not supported');
       return;
     }
@@ -211,14 +228,19 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       try {
         recognition.start();
         setListening(true);
+        voiceListenLog('recognition.start() OK', { lang: recognition.lang, continuous: recognition.continuous });
       } catch (e) {
+        voiceListenLog('recognition.start() failed', e);
         setError('Could not start recognition');
         setListening(false);
       }
+    } else {
+      voiceListenLog('createAndStartRecognition() returned null');
     }
   }, [createAndStartRecognition]);
 
   const stopListening = useCallback(() => {
+    voiceListenLog('stopListening() called');
     activeRef.current = false;
     setHasReceivedSpeech(false);
     hasReceivedSpeechRef.current = false;
@@ -248,6 +270,7 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     if (!supported) return;
     const id = setInterval(() => {
       if (activeRef.current && !recognitionRef.current && !restartScheduledRef.current) {
+        voiceListenLog('watchdog: recognition died while active — restarting');
         if (debugRef.current) console.log('[voice] watchdog – restarting');
         restartScheduledRef.current = true;
         const delay = isSafari ? 250 : 150;
