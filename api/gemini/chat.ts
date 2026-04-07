@@ -1,7 +1,10 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { parseGeminiErrorBody } from './geminiHttp';
 
 const GEMINI_API =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+const LOG = '[gemini-api:chat]';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -48,6 +51,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const safeMessages = Array.isArray(messages) ? messages.slice(-20) : [];
 
+    if (safeMessages.length === 0) {
+      console.warn(LOG, 'reject: empty messages[]');
+      return res.status(400).json({ status: 'ERROR', message: 'messages must include at least one entry' });
+    }
+
     // Gemini REST API only accepts roles "user" and "model" (not "assistant").
     // Use systemInstruction so we don't stack two "user" turns (system + first message).
     const contents = safeMessages.map((m) => {
@@ -58,35 +66,72 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       };
     });
 
-    const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+    const payload = {
+      systemInstruction: {
+        parts: [{ text: systemPrompt(gameState) }],
+      },
+      contents,
+      generationConfig: {
+        temperature: 0.3,
+        maxOutputTokens: 220,
+      },
+    };
+
+    const systemLen = payload.systemInstruction.parts[0]?.text?.length ?? 0;
+    console.log(LOG, 'request', {
+      messageCount: safeMessages.length,
+      contentsRoles: contents.map((c) => c.role),
+      systemInstructionChars: systemLen,
+      firstUserPreview: contents[0]?.parts?.[0]?.text?.slice(0, 80),
+    });
+
+    let response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt(gameState) }],
-        },
-        contents,
-        generationConfig: {
-          temperature: 0.3,
-          maxOutputTokens: 220,
-        },
-      }),
+      body: JSON.stringify(payload),
     });
+
+    if (!response.ok && response.status === 400) {
+      const errText = await response.text();
+      const parsed400 = parseGeminiErrorBody(errText);
+      console.warn(LOG, '400 from Gemini — retrying without systemInstruction (merged into first user turn)', {
+        detail: parsed400.detail,
+      });
+      const sys = systemPrompt(gameState);
+      const first = contents[0];
+      const rest = contents.slice(1);
+      const firstText = first?.parts?.[0]?.text ?? '';
+      const mergedFirst: { role: 'user'; parts: { text: string }[] } = {
+        role: 'user',
+        parts: [{ text: `${sys}\n\nUser:\n${firstText}` }],
+      };
+      const retryPayload = {
+        contents: [mergedFirst, ...rest],
+        generationConfig: payload.generationConfig,
+      };
+      response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(retryPayload),
+      });
+    }
 
     if (!response.ok) {
       const errText = await response.text();
-      let detail = errText.slice(0, 400);
-      try {
-        const j = JSON.parse(errText) as { error?: { message?: string } };
-        if (j.error?.message) detail = j.error.message;
-      } catch {
-        // keep raw slice
-      }
-      console.error('Gemini Chat API error:', response.status, detail);
+      const parsed = parseGeminiErrorBody(errText);
+      console.error(LOG, 'Gemini HTTP error', {
+        status: response.status,
+        detail: parsed.detail,
+        code: parsed.code,
+        statusField: parsed.status,
+        rawSnippet: errText.slice(0, 800),
+      });
       return res.status(502).json({
         status: 'ERROR',
         message: `Gemini API error: ${response.status}`,
-        detail,
+        detail: parsed.detail,
+        geminiCode: parsed.code,
+        geminiStatus: parsed.status,
       });
     }
 

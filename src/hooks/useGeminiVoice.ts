@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { uint8ArrayToBase64 } from '../utils/base64';
 
 type TranscribeResponse =
   | { status: 'OK'; transcript: string; confidence: 'high' | 'medium' | 'low' }
-  | { status: 'ERROR'; message: string };
+  | {
+      status: 'ERROR';
+      message: string;
+      detail?: string;
+      geminiCode?: number;
+      geminiStatus?: string;
+    };
 
 function pickBestMimeType(): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
@@ -87,16 +94,38 @@ export function useGeminiVoice({
       setStatus('transcribing');
       const mimeType = blob.type || mimeTypeRef.current || 'audio/webm;codecs=opus';
       const buf = await blob.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const b64 = uint8ArrayToBase64(new Uint8Array(buf));
       const gameState = buildGameState();
+
+      console.log('[gemini-client:transcribe] sending', {
+        bytes: buf.byteLength,
+        mimeType,
+        b64Chars: b64.length,
+      });
 
       const resp = await fetch('/api/gemini/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audioBase64: b64, mimeType, gameState }),
       });
-      const data = (await resp.json()) as TranscribeResponse;
+      const rawText = await resp.text();
+      let data: TranscribeResponse;
+      try {
+        data = JSON.parse(rawText) as TranscribeResponse;
+      } catch {
+        console.error('[gemini-client:transcribe] non-JSON response', resp.status, rawText.slice(0, 500));
+        setStatus('listening');
+        return;
+      }
       if (!resp.ok || data.status !== 'OK') {
+        const err = data.status === 'ERROR' ? data : ({ message: rawText } as TranscribeResponse);
+        console.error('[gemini-client:transcribe] failed', {
+          httpStatus: resp.status,
+          message: 'message' in err ? err.message : undefined,
+          detail: 'detail' in err ? err.detail : undefined,
+          geminiCode: 'geminiCode' in err ? err.geminiCode : undefined,
+          bodyPreview: rawText.slice(0, 800),
+        });
         setStatus('listening');
         return;
       }

@@ -1,7 +1,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { parseGeminiErrorBody } from './geminiHttp';
 
 const GEMINI_API =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+
+const LOG = '[gemini-api:transcribe]';
+
+/** Gemini is picky about audio MIME strings; strip codec params if needed. */
+function normalizeAudioMimeType(m: string): string {
+  const s = m.trim().toLowerCase();
+  if (s.startsWith('audio/webm')) return 'audio/webm';
+  if (s.startsWith('audio/ogg')) return 'audio/ogg';
+  if (s.startsWith('audio/mp4') || s.startsWith('audio/m4a')) return 'audio/mp4';
+  if (s.startsWith('audio/wav') || s.startsWith('audio/wave')) return 'audio/wav';
+  const base = s.split(';')[0]?.trim();
+  return base || 'audio/webm';
+}
 
 function buildTranscribePrompt(gameState: unknown): string {
   return `Transcribe the user's spoken audio into text.
@@ -55,10 +69,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!audioBase64 || typeof audioBase64 !== 'string') {
       return res.status(400).json({ status: 'ERROR', message: 'Missing audioBase64' });
     }
-    const mt =
+    const rawMt =
       typeof mimeType === 'string' && mimeType.length > 0 ? mimeType : 'audio/webm;codecs=opus';
+    const mt = normalizeAudioMimeType(rawMt);
 
+    const dataClean = audioBase64.replace(/^data:audio\/[^;]+;base64,/, '');
     const prompt = buildTranscribePrompt(gameState);
+
+    console.log(LOG, 'request', {
+      mimeTypeRaw: rawMt,
+      mimeTypeSent: mt,
+      base64Chars: dataClean.length,
+      promptChars: prompt.length,
+    });
 
     const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
       method: 'POST',
@@ -72,7 +95,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               {
                 inline_data: {
                   mime_type: mt,
-                  data: audioBase64.replace(/^data:audio\/[^;]+;base64,/, ''),
+                  data: dataClean,
                 },
               },
             ],
@@ -81,15 +104,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         generationConfig: {
           temperature: 0.1,
           maxOutputTokens: 200,
-          responseMimeType: 'application/json',
+          // Omit responseMimeType — some API/model combos return 400 with application/json here.
         },
       }),
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error('Gemini Transcribe API error:', response.status, err.slice(0, 300));
-      return res.status(502).json({ status: 'ERROR', message: `Gemini API error: ${response.status}` });
+      const errText = await response.text();
+      const parsed = parseGeminiErrorBody(errText);
+      console.error(LOG, 'Gemini HTTP error', {
+        status: response.status,
+        detail: parsed.detail,
+        code: parsed.code,
+        statusField: parsed.status,
+        rawSnippet: errText.slice(0, 800),
+      });
+      return res.status(502).json({
+        status: 'ERROR',
+        message: `Gemini API error: ${response.status}`,
+        detail: parsed.detail,
+        geminiCode: parsed.code,
+        geminiStatus: parsed.status,
+      });
     }
 
     const data = (await response.json()) as {

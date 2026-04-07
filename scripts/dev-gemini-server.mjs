@@ -192,6 +192,15 @@ function tryParseJson(s) {
   }
 }
 
+function normalizeAudioMimeType(m) {
+  const s = String(m || '').trim().toLowerCase();
+  if (s.startsWith('audio/webm')) return 'audio/webm';
+  if (s.startsWith('audio/ogg')) return 'audio/ogg';
+  if (s.startsWith('audio/mp4') || s.startsWith('audio/m4a')) return 'audio/mp4';
+  const base = s.split(';')[0]?.trim();
+  return base || 'audio/webm';
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -253,19 +262,50 @@ const server = createServer(async (req, res) => {
 
   if (path === '/transcribe') {
     const audioBase64 = parsed?.audioBase64;
-    const mimeType = parsed?.mimeType || 'audio/webm;codecs=opus';
+    const mimeTypeRaw = parsed?.mimeType || 'audio/webm;codecs=opus';
     const gameState = parsed?.gameState ?? null;
     if (!audioBase64 || typeof audioBase64 !== 'string') {
       res.writeHead(400, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ERROR', message: 'Missing audioBase64' }));
       return;
     }
-    const parts = [
-      { text: transcribePrompt(gameState) },
-      { inline_data: { mime_type: mimeType, data: audioBase64.replace(/^data:audio\/[^;]+;base64,/, '') } },
-    ];
+    const mt = normalizeAudioMimeType(mimeTypeRaw);
+    const dataClean = audioBase64.replace(/^data:audio\/[^;]+;base64,/, '');
+    console.log('[gemini-dev:transcribe]', { mimeTypeRaw, mimeTypeSent: mt, base64Chars: dataClean.length });
     try {
-      const text = await geminiGenerateText(apiKey, parts, 0.1, 200);
+      const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { text: transcribePrompt(gameState) },
+                { inline_data: { mime_type: mt, data: dataClean } },
+              ],
+            },
+          ],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
+        }),
+      });
+      const raw = await response.text();
+      if (!response.ok) {
+        let detail = raw.slice(0, 800);
+        try {
+          const j = JSON.parse(raw);
+          if (j?.error?.message) detail = j.error.message;
+        } catch {
+          // ignore
+        }
+        console.error('[gemini-dev:transcribe] Gemini HTTP error', response.status, detail);
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'ERROR', message: `Gemini API error: ${response.status}`, detail }));
+        return;
+      }
+      const data = JSON.parse(raw);
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!text) throw new Error('Empty Gemini response');
       const parsedJson = tryParseJson(text);
       if (!parsedJson || typeof parsedJson.transcript !== 'string') throw new Error('Bad JSON');
       const confidence = parsedJson.confidence;

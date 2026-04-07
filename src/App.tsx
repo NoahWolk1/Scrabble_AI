@@ -127,13 +127,31 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: nextMessages, gameState }),
         });
-        const data = (await resp.json()) as {
+        const rawText = await resp.text();
+        let data: {
           status: 'OK' | 'ERROR';
           reply?: string;
           message?: string;
           detail?: string;
+          geminiCode?: number;
+          geminiStatus?: string;
         };
+        try {
+          data = JSON.parse(rawText) as typeof data;
+        } catch {
+          console.error('[gemini-client:chat] non-JSON response', resp.status, rawText.slice(0, 800));
+          throw new Error(`Chat failed (${resp.status}): invalid JSON`);
+        }
         if (!resp.ok || data.status !== 'OK' || !data.reply) {
+          console.error('[gemini-client:chat] failed', {
+            httpStatus: resp.status,
+            status: data.status,
+            message: data.message,
+            detail: data.detail,
+            geminiCode: data.geminiCode,
+            geminiStatus: data.geminiStatus,
+            bodyPreview: rawText.slice(0, 1200),
+          });
           throw new Error(data.detail || data.message || `Chat failed (${resp.status})`);
         }
         const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply ?? '' };
