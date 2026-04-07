@@ -48,7 +48,6 @@ function App() {
   const [debugRecognizedGrid, setDebugRecognizedGrid] = useState<(string | null)[][] | null>(null);
   const [chatEnabled, setChatEnabled] = useState(false);
   const [voiceAutoSendEnabled, setVoiceAutoSendEnabled] = useState(true);
-  const [geminiVoiceEnabled, setGeminiVoiceEnabled] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [blankLetterPrompt, setBlankLetterPrompt] = useState<{
@@ -185,10 +184,20 @@ function App() {
     [buildChatGameState, chatEnabled, chatLoading, chatMessages, showToast, playAIMove]
   );
 
+  const { supported: geminiVoiceSupported, status: geminiVoiceStatus } = useGeminiVoice({
+    enabled: chatEnabled && voiceAutoSendEnabled,
+    buildGameState: buildChatGameState,
+    onTranscript: ({ text, confidence }) => {
+      if (confidence === 'low') return;
+      sendChat(text);
+    },
+  });
+
   const maybeAutoSendVoiceToChat = useCallback(
     (finalText: string) => {
       if (!chatEnabled || !voiceAutoSendEnabled) return;
-      if (geminiVoiceEnabled) return; // when Gemini Voice is enabled, we use mic transcription instead
+      // When the browser can use Gemini mic capture, it handles voice; otherwise fall back to Web Speech.
+      if (geminiVoiceSupported) return;
       const t = finalText.trim();
       if (!t) return;
 
@@ -207,22 +216,12 @@ function App() {
       lastVoiceSentRef.current = { text: t, at: now };
       sendChat(t);
     },
-    [chatEnabled, sendChat, voiceAutoSendEnabled, geminiVoiceEnabled]
+    [chatEnabled, sendChat, voiceAutoSendEnabled, geminiVoiceSupported]
   );
 
   function normalizeWhitespace(s: string): string {
     return s.replace(/\s+/g, ' ').trim().toLowerCase();
   }
-
-  const { supported: geminiVoiceSupported, status: geminiVoiceStatus } = useGeminiVoice({
-    enabled: chatEnabled && geminiVoiceEnabled,
-    buildGameState: buildChatGameState,
-    onTranscript: ({ text, confidence }) => {
-      // Keep it passive but avoid accidental noise-triggered sends.
-      if (confidence === 'low') return;
-      sendChat(text);
-    },
-  });
 
   const handleBoardImage = useCallback(
     async (file: Blob) => {
@@ -485,13 +484,9 @@ function App() {
               onSend={sendChat}
               onClear={() => setChatMessages([])}
               voiceAutoSendEnabled={voiceAutoSendEnabled}
-              setVoiceAutoSendEnabled={setVoiceAutoSendEnabled}
-              geminiVoiceEnabled={geminiVoiceEnabled}
-              setGeminiVoiceEnabled={(v) => {
-                setGeminiVoiceEnabled(v);
-                // Ensure speech output works even when user only uses chat toggles.
-                // This is a user gesture, so it unlocks async speech synthesis on mobile.
-                unlockSpeech();
+              setVoiceAutoSendEnabled={(v) => {
+                setVoiceAutoSendEnabled(v);
+                if (v) unlockSpeech();
               }}
               geminiVoiceSupported={geminiVoiceSupported}
               geminiVoiceStatus={geminiVoiceStatus}

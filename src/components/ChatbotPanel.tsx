@@ -11,8 +11,6 @@ interface ChatbotPanelProps {
   onClear: () => void;
   voiceAutoSendEnabled: boolean;
   setVoiceAutoSendEnabled: (enabled: boolean) => void;
-  geminiVoiceEnabled: boolean;
-  setGeminiVoiceEnabled: (enabled: boolean) => void;
   geminiVoiceSupported: boolean;
   geminiVoiceStatus: string;
 }
@@ -26,8 +24,6 @@ export function ChatbotPanel({
   onClear,
   voiceAutoSendEnabled,
   setVoiceAutoSendEnabled,
-  geminiVoiceEnabled,
-  setGeminiVoiceEnabled,
   geminiVoiceSupported,
   geminiVoiceStatus,
 }: ChatbotPanelProps) {
@@ -65,7 +61,14 @@ export function ChatbotPanel({
             />
             Enabled
           </label>
-          <label className={`flex items-center gap-2 text-sm select-none ${enabled ? 'text-stone-700 dark:text-stone-300' : 'text-stone-400 dark:text-stone-500'}`}>
+          <label
+            className={`flex items-center gap-2 text-sm select-none ${enabled ? 'text-stone-700 dark:text-stone-300' : 'text-stone-400 dark:text-stone-500'}`}
+            title={
+              geminiVoiceSupported
+                ? 'Send microphone audio to Gemini for transcription (falls back to browser speech if unavailable).'
+                : 'Send voice to chat using browser speech recognition (Gemini mic not available here).'
+            }
+          >
             <input
               type="checkbox"
               checked={voiceAutoSendEnabled}
@@ -73,28 +76,11 @@ export function ChatbotPanel({
               onChange={(e) => setVoiceAutoSendEnabled(e.target.checked)}
               className="accent-emerald-600"
             />
-            Auto-send voice
-          </label>
-          <label
-            className={`flex items-center gap-2 text-sm select-none ${
-              enabled && geminiVoiceSupported ? 'text-stone-700 dark:text-stone-300' : 'text-stone-400 dark:text-stone-500'
-            }`}
-            title={
-              geminiVoiceSupported
-                ? 'Uses Gemini to transcribe mic audio (higher accuracy than browser speech recognition).'
-                : 'Gemini Voice not supported in this browser.'
-            }
-          >
-            <input
-              type="checkbox"
-              checked={geminiVoiceEnabled}
-              disabled={!enabled || !geminiVoiceSupported}
-              onChange={(e) => setGeminiVoiceEnabled(e.target.checked)}
-              className="accent-purple-600"
-            />
-            Gemini Voice
-            {geminiVoiceEnabled && (
-              <span className="text-xs text-stone-500 dark:text-stone-400">({geminiVoiceStatus})</span>
+            Voice to chat
+            {voiceAutoSendEnabled && (
+              <span className="text-xs text-stone-500 dark:text-stone-400">
+                ({geminiVoiceSupported ? `Gemini · ${geminiVoiceStatus}` : 'browser speech'})
+              </span>
             )}
           </label>
         </div>
