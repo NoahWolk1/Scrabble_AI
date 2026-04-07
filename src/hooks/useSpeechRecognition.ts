@@ -68,14 +68,15 @@ function matchCommand(transcript: string): VoiceCommand {
 
   // Capture triggers – broad patterns to catch misrecognitions
   if (/(?:your|you['\u2019]?re|you|ur|year|yaw|yor)\s*turn\b/.test(t)) return 'your_turn';
-  if (/\b(?:done|don|dun|finish|finished|finishing|did\s*it)\b/.test(t)) return 'your_turn';
+  // "done" is often misheard as daughter/dawn by cloud STT; include common aliases
+  if (/\b(?:done|don|dun|daughter|dawn|finish|finished|finishing|did\s*it)\b/.test(t)) return 'your_turn';
   if (/\b(?:i\s*am\s*done|i\s*m\s*done|im\s*done|i'm\s*done)\b/.test(t)) return 'your_turn';
   if (/\b(?:go|lets\s*go|let['\u2019]s\s*go|okay\s*go|ok\s*go|alright\s*go)\b/.test(t)) return 'your_turn';
   if (/\b(?:ready|complete|submitted|submit|next|got\s*it)\b/.test(t)) return 'your_turn';
   if (/\btake\s*(?:a\s*)?(?:picture|photo|shot|pick)\b/.test(t)) return 'your_turn';
   if (/\b(?:ok(?:ay)?|yeah|yes|yep)\s*(?:go|done|finish)\b/.test(t)) return 'your_turn';
   if (/\b(?:capture|snap|shoot)\b/.test(t)) return 'your_turn'; // after recapture check
-  if (/^(?:go|done)$/.test(t)) return 'your_turn'; // short confirmations
+  if (/^(?:go|done|daughter|dawn)$/.test(t)) return 'your_turn'; // short confirmations (daughter/dawn: misheard "done")
 
   if (/\bplay\b/.test(t)) return 'play';
   if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
