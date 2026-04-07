@@ -20,6 +20,9 @@ interface SpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
   lang: string;
+  // Newer Chrome builds support on-device recognition controls (experimental).
+  // Keep this optional to avoid breaking other browsers' typings.
+  processLocally?: boolean;
   start: () => void;
   stop: () => void;
   abort: () => void;
@@ -76,7 +79,7 @@ function matchCommand(transcript: string): VoiceCommand {
   if (/\btake\s*(?:a\s*)?(?:picture|photo|shot|pick)\b/.test(t)) return 'your_turn';
   if (/\b(?:ok(?:ay)?|yeah|yes|yep)\s*(?:go|done|finish)\b/.test(t)) return 'your_turn';
   if (/\b(?:capture|snap|shoot)\b/.test(t)) return 'your_turn'; // after recapture check
-  if (/^(?:go|done|daughter|dawn)$/.test(t)) return 'your_turn'; // short confirmations (daughter/dawn: misheard "done")
+  if (/^(?:go|done|daughter|dawn|turn)$/.test(t)) return 'your_turn'; // short confirmations (daughter/dawn: misheard "done"; turn: sometimes isolated)
 
   if (/\bplay\b/.test(t)) return 'play';
   if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
@@ -84,6 +87,21 @@ function matchCommand(transcript: string): VoiceCommand {
   if (/\bmy\s*turn\b/.test(t)) return 'my_turn';
   if (/\b(?:suggest|hint)\b/.test(t)) return 'suggest';
   return null;
+}
+
+function extractRecentCommandCandidates(event: SpeechRecognitionEvent): string[] {
+  // Prefer the newest segments: start at resultIndex (what changed) and include a few earlier
+  // because some browsers update resultIndex oddly on mobile.
+  const start = Math.max(0, event.resultIndex - 2);
+  const candidates: string[] = [];
+  for (let i = start; i < event.results.length; i++) {
+    const result = event.results[i];
+    for (let j = 0; j < result.length; j++) {
+      const t = (result[j]?.transcript ?? '').trim();
+      if (t) candidates.push(t);
+    }
+  }
+  return candidates;
 }
 
 export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
@@ -123,7 +141,17 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
     recognition.continuous = !isSafari; // iOS Safari: continuous often stops after first result
     recognition.interimResults = true;
     recognition.lang = navigator.language?.startsWith('en') ? navigator.language : 'en-US';
-    (recognition as any).maxAlternatives = 3;
+    // More alternatives gives us more chances to match short command words on mobile.
+    (recognition as any).maxAlternatives = 5;
+    // Chrome is rolling out on-device recognition controls. Prefer local when possible for
+    // latency/consistency, but feature-detect and never require it.
+    try {
+      if (typeof (recognition as any).processLocally === 'boolean') {
+        (recognition as any).processLocally = true;
+      }
+    } catch {
+      // Ignore – unsupported / blocked.
+    }
 
     const doRestart = () => {
       if (restartScheduledRef.current || !activeRef.current) return;
@@ -186,13 +214,26 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
         transcriptAccumRef.current = transcriptAccumRef.current.slice(-200);
       }
       const toCheck = transcriptAccumRef.current;
-      let cmd: VoiceCommand | null = matchCommand(toCheck);
+      let cmd: VoiceCommand | null = null;
+
+      // 1) Try the newest segment alternatives first (best for short commands like "done").
+      const candidates = extractRecentCommandCandidates(event);
+      for (let i = 0; i < candidates.length && !cmd; i++) {
+        cmd = matchCommand(candidates[i]);
+      }
+
+      // 2) Then try the concatenated full transcript.
+      if (!cmd) cmd = matchCommand(toCheck);
+
+      // 3) Then try alternatives for the last multi-alt result (legacy path).
       if (!cmd && lastResultWithAlts) {
         for (let j = 1; j < (lastResultWithAlts.length ?? 1); j++) {
           const alt = (lastResultWithAlts[j]?.transcript || '').trim();
           if (alt && (cmd = matchCommand(alt))) break;
         }
       }
+
+      // 4) Finally, only the last few words.
       if (!cmd && toCheck) cmd = matchCommand(toCheck.split(/\s+/).slice(-5).join(' '));
       if (debugRef.current) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
       if (cmd) {
