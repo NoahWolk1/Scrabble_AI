@@ -280,15 +280,47 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  // /chat
+  // /chat — match api/gemini/chat.ts (systemInstruction + user/model roles)
   const messages = Array.isArray(parsed?.messages) ? parsed.messages.slice(-20) : [];
   const gameState = parsed?.gameState ?? null;
-  const parts = [
-    { text: systemChatPrompt(gameState) },
-    ...messages.map((m) => ({ text: `${m?.role === 'assistant' ? 'Assistant' : 'User'}: ${String(m?.content ?? '')}` })),
-  ];
+  const contents = messages.map((m) => {
+    const text = String(m?.content ?? '').trim();
+    return {
+      role: m?.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: text.length > 0 ? text : '(empty message)' }],
+    };
+  });
   try {
-    const reply = await geminiGenerateText(apiKey, parts, 0.3, 220);
+    const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemChatPrompt(gameState) }] },
+        contents,
+        generationConfig: { temperature: 0.3, maxOutputTokens: 220 },
+      }),
+    });
+    const raw = await response.text();
+    if (!response.ok) {
+      let detail = raw.slice(0, 400);
+      try {
+        const j = JSON.parse(raw);
+        if (j?.error?.message) detail = j.error.message;
+      } catch {
+        // ignore
+      }
+      console.warn('Gemini chat failed:', response.status, detail);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: `Gemini API error: ${response.status}`, detail }));
+      return;
+    }
+    const data = JSON.parse(raw);
+    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!reply) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Empty response from Gemini' }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'OK', reply }));
   } catch (err) {

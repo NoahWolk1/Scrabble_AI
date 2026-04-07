@@ -127,9 +127,14 @@ function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: nextMessages, gameState }),
         });
-        const data = (await resp.json()) as { status: 'OK' | 'ERROR'; reply?: string; message?: string };
+        const data = (await resp.json()) as {
+          status: 'OK' | 'ERROR';
+          reply?: string;
+          message?: string;
+          detail?: string;
+        };
         if (!resp.ok || data.status !== 'OK' || !data.reply) {
-          throw new Error(data.message || `Chat failed (${resp.status})`);
+          throw new Error(data.detail || data.message || `Chat failed (${resp.status})`);
         }
         const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply ?? '' };
         setChatMessages((prev) => [...prev, assistantMsg].slice(-30));

@@ -48,21 +48,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const safeMessages = Array.isArray(messages) ? messages.slice(-20) : [];
 
-    const contents = [
-      {
-        role: 'user' as const,
-        parts: [{ text: systemPrompt(gameState) }],
-      },
-      ...safeMessages.map((m) => ({
-        role: m.role,
-        parts: [{ text: String(m.content ?? '') }],
-      })),
-    ];
+    // Gemini REST API only accepts roles "user" and "model" (not "assistant").
+    // Use systemInstruction so we don't stack two "user" turns (system + first message).
+    const contents = safeMessages.map((m) => {
+      const text = String(m.content ?? '').trim();
+      return {
+        role: (m.role === 'assistant' ? 'model' : 'user') as 'user' | 'model',
+        parts: [{ text: text.length > 0 ? text : '(empty message)' }],
+      };
+    });
 
     const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt(gameState) }],
+        },
         contents,
         generationConfig: {
           temperature: 0.3,
@@ -72,9 +74,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error('Gemini Chat API error:', response.status, err.slice(0, 300));
-      return res.status(502).json({ status: 'ERROR', message: `Gemini API error: ${response.status}` });
+      const errText = await response.text();
+      let detail = errText.slice(0, 400);
+      try {
+        const j = JSON.parse(errText) as { error?: { message?: string } };
+        if (j.error?.message) detail = j.error.message;
+      } catch {
+        // keep raw slice
+      }
+      console.error('Gemini Chat API error:', response.status, detail);
+      return res.status(502).json({
+        status: 'ERROR',
+        message: `Gemini API error: ${response.status}`,
+        detail,
+      });
     }
 
     const data = (await response.json()) as {
