@@ -1,10 +1,47 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { parseGeminiErrorBody } from './geminiHttp';
 
 const GEMINI_API =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
 
 const LOG = '[gemini-api:transcribe]';
+
+function parseGeminiErrorBody(raw: string): {
+  detail: string;
+  code?: number;
+  status?: string;
+} {
+  let detail = raw.slice(0, 2000);
+  try {
+    const j = JSON.parse(raw) as { error?: { message?: string; code?: number; status?: string } };
+    if (j.error?.message) detail = j.error.message;
+    return { detail, code: j.error?.code, status: j.error?.status };
+  } catch {
+    return { detail };
+  }
+}
+
+function safeJsonForPrompt(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? String(v) : v));
+  } catch {
+    return '"[game state unavailable]"';
+  }
+}
+
+/** Vercel sometimes delivers `body` as a string; normalize to an object. */
+function readJsonBody(req: VercelRequest): Record<string, unknown> {
+  const b = req.body as unknown;
+  if (b == null) return {};
+  if (typeof b === 'string') {
+    try {
+      return JSON.parse(b) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (typeof b === 'object') return b as Record<string, unknown>;
+  return {};
+}
 
 /** Gemini is picky about audio MIME strings; strip codec params if needed. */
 function normalizeAudioMimeType(m: string): string {
@@ -29,7 +66,7 @@ Rules:
 - If unsure between similar words, choose the most likely given the Scrabble context below.
 
 Scrabble context JSON (may help disambiguate commands like "done", "your turn", "recapture"):
-${JSON.stringify(gameState)}
+${safeJsonForPrompt(gameState)}
 `;
 }
 
@@ -61,7 +98,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { audioBase64, mimeType, gameState } = (req.body ?? {}) as {
+    const body = readJsonBody(req);
+    const { audioBase64, mimeType, gameState } = body as {
       audioBase64?: string;
       mimeType?: string;
       gameState?: unknown;
@@ -139,7 +177,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return res.status(200).json({ status: 'OK', ...parsed });
   } catch (err) {
-    console.error('Gemini transcribe error:', err);
+    console.error(LOG, 'unhandled', err);
     return res.status(500).json({
       status: 'ERROR',
       message: err instanceof Error ? err.message : 'Transcription failed',

@@ -1,5 +1,4 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { parseGeminiErrorBody } from './geminiHttp';
 
 const GEMINI_API =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
@@ -7,6 +6,43 @@ const GEMINI_API =
 const LOG = '[gemini-api:chat]';
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string };
+
+function parseGeminiErrorBody(raw: string): {
+  detail: string;
+  code?: number;
+  status?: string;
+} {
+  let detail = raw.slice(0, 2000);
+  try {
+    const j = JSON.parse(raw) as { error?: { message?: string; code?: number; status?: string } };
+    if (j.error?.message) detail = j.error.message;
+    return { detail, code: j.error?.code, status: j.error?.status };
+  } catch {
+    return { detail };
+  }
+}
+
+function safeJsonForPrompt(value: unknown): string {
+  try {
+    return JSON.stringify(value, (_k, v) => (typeof v === 'bigint' ? String(v) : v));
+  } catch {
+    return '"[game state unavailable]"';
+  }
+}
+
+function readJsonBody(req: VercelRequest): Record<string, unknown> {
+  const b = req.body as unknown;
+  if (b == null) return {};
+  if (typeof b === 'string') {
+    try {
+      return JSON.parse(b) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  if (typeof b === 'object') return b as Record<string, unknown>;
+  return {};
+}
 
 function systemPrompt(gameState: unknown): string {
   return `You are ScrabbleMate, a friendly, competitive Scrabble co-player and coach.
@@ -26,7 +62,7 @@ Constraints:
 - When giving coordinates, use 0-based (row,col) indexes.
 
 Current game state JSON:
-${JSON.stringify(gameState)}
+${safeJsonForPrompt(gameState)}
 `;
 }
 
@@ -44,7 +80,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { messages, gameState } = (req.body ?? {}) as {
+    const body = readJsonBody(req);
+    const { messages, gameState } = body as {
       messages?: ChatMessage[];
       gameState?: unknown;
     };
