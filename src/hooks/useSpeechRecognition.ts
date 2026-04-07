@@ -41,6 +41,11 @@ function voiceTranscriptLog(isFinal: boolean, result: SpeechRecognitionResult): 
   console.log(`${VOICE_TRANSCRIPT_PREFIX} ${isFinal ? 'final' : 'interim'}`, alternatives);
 }
 
+/** One line: full text the engine reports for this session (all segments concatenated). */
+function voiceTranscriptLogFull(full: string): void {
+  console.log(`${VOICE_TRANSCRIPT_PREFIX} full (concatenated)`, full);
+}
+
 function voiceListenLog(message: string, detail?: unknown): void {
   if (detail !== undefined) {
     console.log(`${VOICE_LISTEN_PREFIX} ${message}`, detail);
@@ -153,18 +158,29 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       consecutiveFailuresRef.current = 0;
       hasReceivedSpeechRef.current = true;
       setHasReceivedSpeech(true);
-      let chunk = '';
+
+      // Rebuild from the entire SpeechRecognitionResultList each time. The list is the source of
+      // truth for "so far in this session"; interim entries update in place. Appending only
+      // resultIndex..end onto a previous buffer duplicates text when the same segment grows
+      // (e.g. "Hello" → "Hello it's your" fired as separate events).
+      let fullFromList = '';
       let hadFinal = false;
       let lastResultWithAlts: SpeechRecognitionResult | null = null;
-      for (let i = event.resultIndex; i < event.results.length; i++) {
+      for (let i = 0; i < event.results.length; i++) {
         const result = event.results[i];
         voiceTranscriptLog(result.isFinal, result);
-        const t = (result[0]?.transcript || '').trim();
-        chunk += t + ' ';
+        fullFromList += result[0]?.transcript ?? '';
+      }
+      fullFromList = fullFromList.trim();
+      voiceTranscriptLogFull(fullFromList);
+
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
         if (result.isFinal) hadFinal = true;
         if ((result.length ?? 0) > 1) lastResultWithAlts = result;
       }
-      transcriptAccumRef.current = (transcriptAccumRef.current + chunk).trim();
+
+      transcriptAccumRef.current = fullFromList;
       if (transcriptAccumRef.current.length > 200) {
         transcriptAccumRef.current = transcriptAccumRef.current.slice(-200);
       }
