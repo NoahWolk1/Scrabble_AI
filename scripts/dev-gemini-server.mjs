@@ -167,6 +167,31 @@ ${JSON.stringify(gameState)}
 `;
 }
 
+function transcribePrompt(gameState) {
+  return `Transcribe the user's spoken audio into text.
+
+Output MUST be valid JSON with this shape:
+{"transcript": string, "confidence": "high"|"medium"|"low"}
+
+Rules:
+- Keep transcript exactly what the user said (light punctuation ok).
+- If the audio is mostly silence/noise, transcript = "" and confidence="low".
+- If unsure between similar words, choose the most likely given the Scrabble context below.
+
+Scrabble context JSON:
+${JSON.stringify(gameState)}
+`;
+}
+
+function tryParseJson(s) {
+  const cleaned = String(s || '').replace(/^```json\s*|\s*```$/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    return null;
+  }
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -179,7 +204,7 @@ const server = createServer(async (req, res) => {
   }
 
   const path = (req.url || '').split('?')[0];
-  if (req.method !== 'POST' || (path !== '/recognize-board' && path !== '/chat')) {
+  if (req.method !== 'POST' || (path !== '/recognize-board' && path !== '/chat' && path !== '/transcribe')) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Not found' }));
     return;
@@ -226,6 +251,35 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (path === '/transcribe') {
+    const audioBase64 = parsed?.audioBase64;
+    const mimeType = parsed?.mimeType || 'audio/webm;codecs=opus';
+    const gameState = parsed?.gameState ?? null;
+    if (!audioBase64 || typeof audioBase64 !== 'string') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Missing audioBase64' }));
+      return;
+    }
+    const parts = [
+      { text: transcribePrompt(gameState) },
+      { inline_data: { mime_type: mimeType, data: audioBase64.replace(/^data:audio\/[^;]+;base64,/, '') } },
+    ];
+    try {
+      const text = await geminiGenerateText(apiKey, parts, 0.1, 200);
+      const parsedJson = tryParseJson(text);
+      if (!parsedJson || typeof parsedJson.transcript !== 'string') throw new Error('Bad JSON');
+      const confidence = parsedJson.confidence;
+      if (confidence !== 'high' && confidence !== 'medium' && confidence !== 'low') throw new Error('Bad confidence');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'OK', transcript: parsedJson.transcript, confidence }));
+    } catch (err) {
+      console.warn('Gemini transcribe failed:', err?.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Transcribe failed').replace(/[^\x20-\x7E]/g, '') }));
+    }
+    return;
+  }
+
   // /chat
   const messages = Array.isArray(parsed?.messages) ? parsed.messages.slice(-20) : [];
   const gameState = parsed?.gameState ?? null;
@@ -242,6 +296,7 @@ const server = createServer(async (req, res) => {
     res.writeHead(502, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Chat failed').replace(/[^\x20-\x7E]/g, '') }));
   }
+  return;
 });
 
 server.listen(PORT, () => {
