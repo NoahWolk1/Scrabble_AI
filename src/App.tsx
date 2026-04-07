@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Board } from './components/Board';
 import { LetterPicker } from './components/LetterPicker';
+import { BlankLetterModal } from './components/BlankLetterModal';
 import { Rack } from './components/Rack';
 import { GameControls } from './components/GameControls';
 import { CameraView, type CameraViewRef } from './components/CameraView';
@@ -40,6 +41,10 @@ function App() {
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [debugRecognizedGrid, setDebugRecognizedGrid] = useState<(string | null)[][] | null>(null);
+  const [blankLetterPrompt, setBlankLetterPrompt] = useState<{
+    grid: (string | null)[][];
+    pending: { row: number; col: number }[];
+  } | null>(null);
   const setBoardFromRecognition = useGameStore((s) => s.setBoardFromRecognition);
   const setHumanRack = useGameStore((s) => s.setHumanRack);
   const applyHumanMoveFromBoardImage = useGameStore((s) => s.applyHumanMoveFromBoardImage);
@@ -79,14 +84,22 @@ function App() {
           boardRecLog('applyHumanMoveFromBoardImage', {
             success: result.success,
             lostTurn: 'lostTurn' in result ? result.lostTurn : undefined,
-            message: result.message,
+            message: 'message' in result ? result.message : undefined,
+            needsBlankLetters: 'needsBlankLetters' in result ? result.needsBlankLetters : undefined,
           });
-          if (!result.success) {
+          if (!result.success && 'needsBlankLetters' in result && result.needsBlankLetters) {
+            setBlankLetterPrompt({ grid: result.grid, pending: result.pendingBlanks });
             setDebugRecognizedGrid(grid);
-            showToast(result.message ?? 'Recognition failed');
+          } else if (!result.success) {
+            setDebugRecognizedGrid(grid);
+            showToast(
+              'message' in result && result.message ? result.message : 'Recognition failed'
+            );
           } else if (result.lostTurn) {
             setDebugRecognizedGrid(grid);
-            showToast(result.message ?? 'Invalid move—you lost your turn');
+            showToast(
+              'message' in result && result.message ? result.message : 'Invalid move—you lost your turn'
+            );
           } else {
             setDebugRecognizedGrid(null);
           }
@@ -127,6 +140,12 @@ function App() {
     },
     [setHumanRack, showToast]
   );
+
+  useEffect(() => {
+    if (blankLetterPrompt) {
+      speak('Choose the letter for your blank tile.');
+    }
+  }, [blankLetterPrompt]);
 
   useEffect(() => {
     loadDictionary().then((dict) => {
@@ -506,6 +525,45 @@ function App() {
                 </div>
               </div>
             </div>
+          )}
+
+          {blankLetterPrompt && (
+            <BlankLetterModal
+              pending={blankLetterPrompt.pending}
+              onCancel={() => setBlankLetterPrompt(null)}
+              onConfirm={(lettersByKey) => {
+                const gridSnapshot = blankLetterPrompt.grid;
+                setBlankLetterPrompt(null);
+                const result = applyHumanMoveFromBoardImage(gridSnapshot, lettersByKey);
+                boardRecLog('applyHumanMoveFromBoardImage (blank letters resolved)', {
+                  success: result.success,
+                  lostTurn: 'lostTurn' in result ? result.lostTurn : undefined,
+                  message: 'message' in result ? result.message : undefined,
+                });
+                if (!result.success && 'needsBlankLetters' in result && result.needsBlankLetters) {
+                  setBlankLetterPrompt({ grid: result.grid, pending: result.pendingBlanks });
+                  setDebugRecognizedGrid(gridSnapshot);
+                  return;
+                }
+                if (!result.success) {
+                  setDebugRecognizedGrid(gridSnapshot);
+                  showToast(
+                    'message' in result && result.message ? result.message : 'Invalid move'
+                  );
+                  return;
+                }
+                if (result.lostTurn) {
+                  setDebugRecognizedGrid(gridSnapshot);
+                  showToast(
+                    'message' in result && result.message
+                      ? result.message
+                      : 'Invalid move—you lost your turn'
+                  );
+                  return;
+                }
+                setDebugRecognizedGrid(null);
+              }}
+            />
           )}
 
           {toast && (

@@ -32,7 +32,7 @@ function getMoveWordValidity(
   trie: Trie
 ): { invalidWords: string[]; noMainWord: boolean } {
   const testBoard = board.clone();
-  for (const t of tiles) testBoard.set(t.row, t.col, t.letter);
+  for (const t of tiles) testBoard.setTile(t.row, t.col, t.letter, !!t.isBlank);
 
   const main = testBoard.getMainWord(tiles);
   if (!main) return { invalidWords: [], noMainWord: true };
@@ -92,9 +92,34 @@ interface GameStore {
   setBoardFromRecognition: (grid: (string | null)[][]) => void;
   setBoardCell: (row: number, col: number, letter: string | null) => void;
   setHumanRack: (rack: string[]) => void;
-  applyHumanMoveFromBoardImage: (grid: (string | null)[][]) => { success: boolean; message?: string; lostTurn?: boolean };
+  applyHumanMoveFromBoardImage: (
+    grid: (string | null)[][],
+    blankLettersByKey?: Record<string, string>
+  ) => ApplyHumanMoveFromBoardImageResult;
   validateMove: (tiles: PlacedTile[]) => boolean;
   undoLastTurn: () => boolean;
+}
+
+export type ApplyHumanMoveFromBoardImageResult =
+  | { success: true; lostTurn?: boolean; message?: string }
+  | {
+      success: false;
+      needsBlankLetters: true;
+      pendingBlanks: { row: number; col: number }[];
+      grid: (string | null)[][];
+    }
+  | { success: false; message: string; lostTurn?: boolean };
+
+function cellKey(r: number, c: number): string {
+  return `${r},${c}`;
+}
+
+/** OCR often returns space or ? for a physical blank tile. */
+function isOcrBlankCell(next: string | null | undefined): boolean {
+  if (next === null || next === undefined) return false;
+  if (next === ' ') return true;
+  if (next === '?') return true;
+  return false;
 }
 
 interface TurnSnapshot {
@@ -439,20 +464,58 @@ export const useGameStore = create<GameStore>((set, get) => ({
     });
   },
 
-  applyHumanMoveFromBoardImage: (newGrid) => {
+  applyHumanMoveFromBoardImage: (newGrid, blankLettersByKey = {}) => {
     const { board, humanRack, trie, validateRack, loseTurnOnInvalidMove } = get();
     if (!trie) return { success: false, message: 'Dictionary not loaded' };
 
     const currentArr = board.toArray();
-    const rawTiles: { letter: string; row: number; col: number }[] = [];
+    const pendingBlanks: { row: number; col: number }[] = [];
+    const rawTiles: { letter: string; row: number; col: number; isBlankTile?: boolean }[] = [];
+
     for (let r = 0; r < 15; r++) {
       for (let c = 0; c < 15; c++) {
         const curr = currentArr[r]?.[c];
         const next = newGrid[r]?.[c];
-        if (!curr && next && /^[A-Z]$/.test(next)) {
-          rawTiles.push({ letter: next, row: r, col: c });
+        if (curr) continue;
+
+        const k = cellKey(r, c);
+        const resolved = blankLettersByKey[k];
+
+        if (isOcrBlankCell(next)) {
+          if (resolved && /^[A-Z]$/i.test(resolved)) {
+            rawTiles.push({
+              letter: resolved.toUpperCase(),
+              row: r,
+              col: c,
+              isBlankTile: true,
+            });
+          } else {
+            pendingBlanks.push({ row: r, col: c });
+          }
+          continue;
+        }
+
+        if (next && /^[A-Z]$/i.test(String(next))) {
+          rawTiles.push({ letter: String(next).toUpperCase(), row: r, col: c });
         }
       }
+    }
+
+    if (pendingBlanks.length > 0) {
+      const need = pendingBlanks.length;
+      const have = humanRack.filter((x) => x === ' ').length;
+      if (have < need) {
+        return {
+          success: false,
+          message: `The photo shows ${need} blank square(s) but your rack only has ${have} blank tile(s). Update your rack or recapture.`,
+        };
+      }
+      return {
+        success: false,
+        needsBlankLetters: true,
+        pendingBlanks,
+        grid: newGrid,
+      };
     }
 
     if (rawTiles.length === 0) {
@@ -467,15 +530,26 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const newTiles: PlacedTile[] = [];
     let rackValid = true;
     for (const t of rawTiles) {
+      if (t.isBlankTile) {
+        if ((rackCount[' '] ?? 0) > 0) {
+          rackCount[' ']!--;
+          newTiles.push({ row: t.row, col: t.col, letter: t.letter, isBlank: true });
+        } else {
+          rackValid = false;
+          newTiles.push({ row: t.row, col: t.col, letter: t.letter });
+        }
+        continue;
+      }
+
       if ((rackCount[t.letter] ?? 0) > 0) {
         rackCount[t.letter]!--;
-        newTiles.push({ ...t });
+        newTiles.push({ row: t.row, col: t.col, letter: t.letter });
       } else if ((rackCount[' '] ?? 0) > 0) {
         rackCount[' ']!--;
-        newTiles.push({ ...t, isBlank: true });
+        newTiles.push({ row: t.row, col: t.col, letter: t.letter, isBlank: true });
       } else {
         rackValid = false;
-        newTiles.push({ ...t }); // allow for word check; reject/forfeit below if needed
+        newTiles.push({ row: t.row, col: t.col, letter: t.letter });
       }
     }
 
