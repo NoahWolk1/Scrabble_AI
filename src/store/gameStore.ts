@@ -204,7 +204,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   trie: null,
   pendingMove: null,
   lastAIMove: null,
-  validateRack: false,
+  validateRack: true,
   loseTurnOnInvalidMove: false,
   aiDifficulty: 'medium',
   status: 'Loading dictionary...',
