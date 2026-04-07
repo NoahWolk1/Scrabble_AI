@@ -19,6 +19,7 @@ import { prepareImageForRecognition } from './cv/imageUtils';
 import { useGeminiVoice } from './hooks/useGeminiVoice';
 import { wantsAiToTakeTurn } from './utils/voiceAiIntent';
 import { stripMarkdownForSpeech } from './utils/speechText';
+import { shouldCaptureBoardForChatContext } from './utils/chatBoardCapture';
 
 function App() {
   const {
@@ -66,6 +67,7 @@ function App() {
   const lastVoiceSentRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
   /** Debounce AI "take your turn" nudges from voice or chat. */
   const lastAiTurnNudgeRef = useRef(0);
+  const lastChatBoardCaptureRef = useRef(0);
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -116,6 +118,21 @@ function App() {
     };
   }, []);
 
+  const triggerBoardCaptureForChat = useCallback(
+    (reason: string) => {
+      if (useGameStore.getState().gameOver) return;
+      if (!stream) return;
+      if (recognizingRef.current) return;
+      const now = Date.now();
+      if (now - lastChatBoardCaptureRef.current < 5000) return;
+      lastChatBoardCaptureRef.current = now;
+      unlockSpeech();
+      console.log('[chat] auto board capture:', reason);
+      cameraRef.current?.capture();
+    },
+    [stream]
+  );
+
   const sendChat = useCallback(
     async (text: string) => {
       if (!chatEnabled || chatLoading) return;
@@ -127,8 +144,13 @@ function App() {
         const now = Date.now();
         if (now - lastAiTurnNudgeRef.current < 2000) return;
         lastAiTurnNudgeRef.current = now;
+        triggerBoardCaptureForChat('ai-turn nudge (voice)');
         void playAIMove();
         return;
+      }
+
+      if (shouldCaptureBoardForChatContext({ currentPlayer: gs.currentPlayer, userText: trimmed })) {
+        triggerBoardCaptureForChat('user message (AI-turn context)');
       }
 
       const userMsg: ChatMessage = { role: 'user', content: trimmed };
@@ -171,6 +193,16 @@ function App() {
         }
         const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply ?? '' };
         setChatMessages((prev) => [...prev, assistantMsg].slice(-30));
+        const after = useGameStore.getState();
+        if (
+          shouldCaptureBoardForChatContext({
+            currentPlayer: after.currentPlayer,
+            userText: trimmed,
+            assistantText: assistantMsg.content,
+          })
+        ) {
+          triggerBoardCaptureForChat('assistant reply (AI-turn context)');
+        }
         // Speak assistant replies out loud (browser TTS). Requires unlockSpeech() to have been
         // called from a user gesture at least once (the app already does this on key buttons).
         speak(stripMarkdownForSpeech(assistantMsg.content));
@@ -181,7 +213,15 @@ function App() {
         setChatLoading(false);
       }
     },
-    [buildChatGameState, chatEnabled, chatLoading, chatMessages, showToast, playAIMove]
+    [
+      buildChatGameState,
+      chatEnabled,
+      chatLoading,
+      chatMessages,
+      showToast,
+      playAIMove,
+      triggerBoardCaptureForChat,
+    ]
   );
 
   const { supported: geminiVoiceSupported, status: geminiVoiceStatus } = useGeminiVoice({
