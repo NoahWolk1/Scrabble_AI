@@ -17,7 +17,6 @@ import { boardRecLog } from './cv/boardRecognitionLog';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
 import { prepareImageForRecognition } from './cv/imageUtils';
 import { useGeminiVoice } from './hooks/useGeminiVoice';
-import { wantsAiToTakeTurn } from './utils/voiceAiIntent';
 import { stripMarkdownForSpeech } from './utils/speechText';
 import { shouldCaptureBoardForChatContext } from './utils/chatBoardCapture';
 
@@ -68,12 +67,16 @@ function App() {
   /** Debounce AI "take your turn" nudges from voice or chat. */
   const lastAiTurnNudgeRef = useRef(0);
   const lastChatBoardCaptureRef = useRef(0);
+  /** Set before chat-triggered board capture; suppresses spoken toasts so they don't cancel assistant TTS. */
+  const boardCaptureFromChatRef = useRef(false);
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showToast = useCallback((msg: string) => {
+  const showToast = useCallback((msg: string, options?: { speak?: boolean }) => {
     if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
     setToast(msg);
-    speak(msg);
+    if (options?.speak !== false) {
+      speak(msg);
+    }
     toastTimeoutRef.current = setTimeout(() => {
       setToast(null);
       toastTimeoutRef.current = null;
@@ -126,7 +129,8 @@ function App() {
       const now = Date.now();
       if (now - lastChatBoardCaptureRef.current < 5000) return;
       lastChatBoardCaptureRef.current = now;
-      unlockSpeech();
+      // Do not call unlockSpeech() here — it queues a silent utterance and can interrupt chat TTS.
+      boardCaptureFromChatRef.current = true;
       console.log('[chat] auto board capture:', reason);
       cameraRef.current?.capture();
     },
@@ -140,14 +144,6 @@ function App() {
       if (!trimmed) return;
 
       const gs = useGameStore.getState();
-      if (gs.currentPlayer === 'ai' && !gs.gameOver && gs.trie && wantsAiToTakeTurn(trimmed)) {
-        const now = Date.now();
-        if (now - lastAiTurnNudgeRef.current < 2000) return;
-        lastAiTurnNudgeRef.current = now;
-        triggerBoardCaptureForChat('ai-turn nudge (voice)');
-        void playAIMove();
-        return;
-      }
 
       if (shouldCaptureBoardForChatContext({ currentPlayer: gs.currentPlayer, userText: trimmed })) {
         triggerBoardCaptureForChat('user message (AI-turn context)');
@@ -168,6 +164,7 @@ function App() {
         let data: {
           status: 'OK' | 'ERROR';
           reply?: string;
+          playAiMove?: boolean;
           message?: string;
           detail?: string;
           geminiCode?: number;
@@ -193,19 +190,38 @@ function App() {
         }
         const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply ?? '' };
         setChatMessages((prev) => [...prev, assistantMsg].slice(-30));
+
+        if (data.playAiMove === true) {
+          const s = useGameStore.getState();
+          if (s.currentPlayer === 'ai' && !s.gameOver && s.trie) {
+            const now = Date.now();
+            if (now - lastAiTurnNudgeRef.current >= 2000) {
+              lastAiTurnNudgeRef.current = now;
+              triggerBoardCaptureForChat('ai-turn nudge (model intent)');
+              void playAIMove();
+            }
+          }
+        }
+
         const after = useGameStore.getState();
-        if (
-          shouldCaptureBoardForChatContext({
-            currentPlayer: after.currentPlayer,
-            userText: trimmed,
-            assistantText: assistantMsg.content,
-          })
-        ) {
+        const speakText = stripMarkdownForSpeech(assistantMsg.content);
+        const shouldCapAfter = shouldCaptureBoardForChatContext({
+          currentPlayer: after.currentPlayer,
+          userText: trimmed,
+          assistantText: assistantMsg.content,
+        });
+        // Speak first so board capture / toast does not cancel assistant audio (speak() cancels prior speech).
+        if (speakText.trim()) {
+          // Re-arm speech after async fetch (mobile Safari often blocks TTS without a recent gesture).
+          unlockSpeech();
+          speak(speakText, {
+            onEnd: () => {
+              if (shouldCapAfter) triggerBoardCaptureForChat('assistant reply (AI-turn context)');
+            },
+          });
+        } else if (shouldCapAfter) {
           triggerBoardCaptureForChat('assistant reply (AI-turn context)');
         }
-        // Speak assistant replies out loud (browser TTS). Requires unlockSpeech() to have been
-        // called from a user gesture at least once (the app already does this on key buttons).
-        speak(stripMarkdownForSpeech(assistantMsg.content));
       } catch (err) {
         console.error('Chat send failed:', err);
         showToast(err instanceof Error ? err.message : 'Chat failed');
@@ -265,6 +281,9 @@ function App() {
 
   const handleBoardImage = useCallback(
     async (file: Blob) => {
+      const fromChatCapture = boardCaptureFromChatRef.current;
+      boardCaptureFromChatRef.current = false;
+
       setRecognizing(true);
       setToast(null);
       // Yield to browser so video can render next frame before we block
@@ -290,12 +309,14 @@ function App() {
           } else if (!result.success) {
             setDebugRecognizedGrid(grid);
             showToast(
-              'message' in result && result.message ? result.message : 'Recognition failed'
+              'message' in result && result.message ? result.message : 'Recognition failed',
+              { speak: !fromChatCapture }
             );
           } else if (result.lostTurn) {
             setDebugRecognizedGrid(grid);
             showToast(
-              'message' in result && result.message ? result.message : 'Invalid move—you lost your turn'
+              'message' in result && result.message ? result.message : 'Invalid move—you lost your turn',
+              { speak: !fromChatCapture }
             );
           } else {
             setDebugRecognizedGrid(null);
@@ -306,7 +327,7 @@ function App() {
       } catch (err) {
         console.error('Recognition failed:', err);
         const msg = err instanceof Error ? err.message : 'Board recognition failed.';
-        showToast(msg);
+        showToast(msg, { speak: !fromChatCapture });
       } finally {
         setRecognizing(false);
       }

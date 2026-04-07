@@ -8,7 +8,10 @@ export function textHintsAtAiTurn(text: string): boolean {
     /\b(it'?s|its) (the )?(ai|computer|opponent)['']?s turn\b/.test(t) ||
     /\bturn (for|to) (the )?(ai|computer|opponent)\b/.test(t) ||
     /\bwhen (does|will) (the )?(ai|computer|opponent) (play|move|go)\b/.test(t) ||
-    /\b(ai|computer|opponent) (to )?(play|move|go)\b/.test(t)
+    /\b(ai|computer|opponent) (to )?(play|move|go)\b/.test(t) ||
+    // Common shorthand to the opponent / AI: "Your turn." (also matches when addressing the app as the other player)
+    /\byour turn\b/.test(t) ||
+    /\btake your turn\b/.test(t)
   );
 }
 

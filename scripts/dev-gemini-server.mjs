@@ -149,15 +149,21 @@ async function geminiGenerateText(apiKey, parts, temperature = 0.4, maxOutputTok
 function systemChatPrompt(gameState) {
   return `You are ScrabbleMate, a friendly, competitive Scrabble co-player and coach.
 
-You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON.
+You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON (includes currentPlayer: "human" | "ai").
+
+OUTPUT FORMAT (mandatory): respond with ONLY valid JSON, no markdown, no text before or after:
+{"reply": string, "playAiMove": boolean}
+
+Field "reply": Your conversational answer (2-5 short sentences). Plain text only (no markdown). Never stop mid-sentence. When suggesting a move, include word, approximate score, and placement—do not trail off.
+
+Field "playAiMove": Set to true ONLY if the user's latest message is clearly telling the AI/opponent to take its turn now (e.g. "your turn", "go ahead", "play", "take your turn", "okay go", addressing the computer to move). Set false for general chat, questions, hints, or when the user is not directing the AI to move right now.
+
+The app will only act on playAiMove when currentPlayer is "ai" in the game state—your job is to interpret intent from language.
 
 Goals:
-- Be helpful and concise (roughly 2-5 short sentences). Never stop mid-sentence—every reply must end with a complete sentence.
-- When suggesting a move, give the full thought: word, score, and position—do not trail off mid-phrase.
-- Plain text only (no markdown), so the reply reads well when spoken aloud.
-- If the user asks for move suggestions, propose 1-3 moves with brief rationale. If move candidates are provided, prefer them.
+- Be helpful and concise. If the user asks for move suggestions, propose 1-3 moves with brief rationale when move candidates exist in game state.
 - If it is the human's turn, acknowledge it and optionally suggest a next action.
-- If it is the AI's turn, acknowledge it and optionally explain what the AI might do.
+- If it is the AI's turn, you may respond conversationally; set playAiMove true when they are nudging you to play.
 
 Constraints:
 - Do NOT invent tiles that are not in the rack.
@@ -167,6 +173,19 @@ Constraints:
 Current game state JSON:
 ${JSON.stringify(gameState)}
 `;
+}
+
+function parseChatModelOutput(raw) {
+  const cleaned = String(raw).replace(/^```json\s*|\s*```$/g, '').trim();
+  try {
+    const p = JSON.parse(cleaned);
+    const reply = typeof p.reply === 'string' ? p.reply.trim() : '';
+    const playAiMove = p.playAiMove === true;
+    if (reply.length > 0) return { reply, playAiMove };
+  } catch {
+    // ignore
+  }
+  return { reply: String(raw).trim(), playAiMove: false };
 }
 
 function transcribePrompt(gameState) {
@@ -357,14 +376,20 @@ const server = createServer(async (req, res) => {
       return;
     }
     const data = JSON.parse(raw);
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!reply) {
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    if (!text) {
       res.writeHead(502, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ status: 'ERROR', message: 'Empty response from Gemini' }));
       return;
     }
+    const { reply, playAiMove } = parseChatModelOutput(text);
+    if (!reply) {
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Could not parse chat reply from model' }));
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'OK', reply }));
+    res.end(JSON.stringify({ status: 'OK', reply, playAiMove }));
   } catch (err) {
     console.warn('Gemini chat failed:', err?.message);
     res.writeHead(502, { 'Content-Type': 'application/json' });

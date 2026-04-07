@@ -50,16 +50,21 @@ function readJsonBody(req: VercelRequest): Record<string, unknown> {
 function systemPrompt(gameState: unknown): string {
   return `You are ScrabbleMate, a friendly, competitive Scrabble co-player and coach.
 
-You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON.
+You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON (includes currentPlayer: "human" | "ai").
+
+OUTPUT FORMAT (mandatory): respond with ONLY valid JSON, no markdown, no text before or after:
+{"reply": string, "playAiMove": boolean}
+
+Field "reply": Your conversational answer (2-5 short sentences). Plain text only (no markdown). Never stop mid-sentence. When suggesting a move, include word, approximate score, and placement—do not trail off.
+
+Field "playAiMove": Set to true ONLY if the user's latest message is clearly telling the AI/opponent to take its turn now (e.g. "your turn", "go ahead", "play", "take your turn", "okay go", addressing the computer to move). Set false for general chat, questions, hints, or when the user is not directing the AI to move right now.
+
+The app will only act on playAiMove when currentPlayer is "ai" in the game state—your job is to interpret intent from language.
 
 Goals:
-- Be helpful and concise (roughly 2-5 short sentences). Never stop mid-sentence or mid-thought—every reply must end with a complete sentence (proper punctuation).
-- When suggesting a move, give the full thought: word, approximate score, and direction/position—do not trail off (e.g. do not end with "for" or an incomplete phrase).
-- Plain text only (no markdown bold/italics), so the reply reads well when spoken aloud.
-- If the user asks for move suggestions, propose 1-3 moves with brief rationale. If move candidates are provided, prefer them.
+- Be helpful and concise. If the user asks for move suggestions, propose 1-3 moves with brief rationale when move candidates exist in game state.
 - If it is the human's turn, acknowledge it and optionally suggest a next action.
-- If it is the AI's turn, acknowledge it and optionally explain what the AI might do.
-- Ask a short clarifying question only if you truly need it.
+- If it is the AI's turn, you may respond conversationally; set playAiMove true when they are nudging you to play.
 
 Constraints:
 - Do NOT invent tiles that are not in the rack.
@@ -69,6 +74,19 @@ Constraints:
 Current game state JSON:
 ${safeJsonForPrompt(gameState)}
 `;
+}
+
+function parseChatModelOutput(raw: string): { reply: string; playAiMove: boolean } {
+  const cleaned = raw.replace(/^```json\s*|\s*```$/g, '').trim();
+  try {
+    const p = JSON.parse(cleaned) as { reply?: unknown; playAiMove?: unknown };
+    const reply = typeof p.reply === 'string' ? p.reply.trim() : '';
+    const playAiMove = p.playAiMove === true;
+    if (reply.length > 0) return { reply, playAiMove };
+  } catch {
+    // fall through
+  }
+  return { reply: raw.trim(), playAiMove: false };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -183,7 +201,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
     if (!text) return res.status(502).json({ status: 'ERROR', message: 'Empty response from Gemini' });
 
-    return res.status(200).json({ status: 'OK', reply: text });
+    const { reply, playAiMove } = parseChatModelOutput(text);
+    if (!reply) return res.status(502).json({ status: 'ERROR', message: 'Could not parse chat reply from model' });
+
+    return res.status(200).json({ status: 'OK', reply, playAiMove });
   } catch (err) {
     console.error('Gemini chat error:', err);
     return res.status(500).json({
