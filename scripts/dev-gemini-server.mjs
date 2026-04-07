@@ -130,6 +130,43 @@ async function recognizeBoard(imageBase64, mimeType, apiKey, priorBoard) {
   return normalizeRecognizedGrid(parsed);
 }
 
+async function geminiGenerateText(apiKey, parts, temperature = 0.4, maxOutputTokens = 1024) {
+  const response = await fetch(`${GEMINI_API}?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts }],
+      generationConfig: { temperature, maxOutputTokens },
+    }),
+  });
+  if (!response.ok) throw new Error(`Gemini API: ${response.status}`);
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  if (!text) throw new Error('Empty Gemini response');
+  return text;
+}
+
+function systemChatPrompt(gameState) {
+  return `You are ScrabbleMate, a friendly, competitive Scrabble co-player and coach.
+
+You are chatting with a human who is playing a Scrabble game in a web app. You have up-to-date game state below as JSON.
+
+Goals:
+- Be concise and helpful.
+- If the user asks for move suggestions, propose 1-3 moves with brief rationale. If move candidates are provided, prefer them.
+- If it is the human's turn, acknowledge it and optionally suggest a next action.
+- If it is the AI's turn, acknowledge it and optionally explain what the AI might do.
+
+Constraints:
+- Do NOT invent tiles that are not in the rack.
+- Do NOT invent letters already on the board.
+- When giving coordinates, use 0-based (row,col) indexes.
+
+Current game state JSON:
+${JSON.stringify(gameState)}
+`;
+}
+
 const server = createServer(async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -142,7 +179,7 @@ const server = createServer(async (req, res) => {
   }
 
   const path = (req.url || '').split('?')[0];
-  if (req.method !== 'POST' || path !== '/recognize-board') {
+  if (req.method !== 'POST' || (path !== '/recognize-board' && path !== '/chat')) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Not found' }));
     return;
@@ -166,22 +203,44 @@ const server = createServer(async (req, res) => {
     res.end(JSON.stringify({ status: 'ERROR', message: 'Invalid JSON' }));
     return;
   }
-  const image = parsed?.image;
-  const mimeType = parsed?.mimeType || 'image/jpeg';
-  const priorBoard = Array.isArray(parsed?.priorBoard) && parsed.priorBoard.length === 15 ? parsed.priorBoard : null;
-  if (!image || typeof image !== 'string') {
-    res.writeHead(400, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ERROR', message: 'Missing image (base64)' }));
+  if (path === '/recognize-board') {
+    const image = parsed?.image;
+    const mimeType = parsed?.mimeType || 'image/jpeg';
+    const priorBoard = Array.isArray(parsed?.priorBoard) && parsed.priorBoard.length === 15 ? parsed.priorBoard : null;
+    if (!image || typeof image !== 'string') {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: 'Missing image (base64)' }));
+      return;
+    }
+    try {
+      const grid = await recognizeBoard(image, mimeType, apiKey, priorBoard);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'OK', grid }));
+    } catch (err) {
+      console.warn('Gemini Vision recognize failed:', err?.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(
+        JSON.stringify({ status: 'ERROR', message: (err?.message || 'Recognition failed').replace(/[^\x20-\x7E]/g, '') })
+      );
+    }
     return;
   }
+
+  // /chat
+  const messages = Array.isArray(parsed?.messages) ? parsed.messages.slice(-20) : [];
+  const gameState = parsed?.gameState ?? null;
+  const parts = [
+    { text: systemChatPrompt(gameState) },
+    ...messages.map((m) => ({ text: `${m?.role === 'assistant' ? 'Assistant' : 'User'}: ${String(m?.content ?? '')}` })),
+  ];
   try {
-    const grid = await recognizeBoard(image, mimeType, apiKey, priorBoard);
+    const reply = await geminiGenerateText(apiKey, parts, 0.4, 1024);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'OK', grid }));
+    res.end(JSON.stringify({ status: 'OK', reply }));
   } catch (err) {
-    console.warn('Gemini Vision recognize failed:', err?.message);
+    console.warn('Gemini chat failed:', err?.message);
     res.writeHead(502, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Recognition failed').replace(/[^\x20-\x7E]/g, '') }));
+    res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Chat failed').replace(/[^\x20-\x7E]/g, '') }));
   }
 });
 

@@ -7,22 +7,40 @@ interface VoiceCaptureTriggerProps {
   active: boolean;
   /** When true, user must tap a button to start listening (required for mobile mic permission) */
   requireTapToStart?: boolean;
+  /** Optional: receive final recognized utterances (for chatbot / assistant). */
+  onFinalTranscript?: (text: string) => void;
 }
 
 /**
  * Listens for "your turn", "recapture", "done", "finish", "go", and similar phrases.
  * "your turn" / "done" / etc. trigger capture; "recapture" triggers recapture (undo + capture).
  */
-export function VoiceCaptureTrigger({ onCapture, onRecapture, active, requireTapToStart = true }: VoiceCaptureTriggerProps) {
+export function VoiceCaptureTrigger({
+  onCapture,
+  onRecapture,
+  onFinalTranscript,
+  active,
+  requireTapToStart = true,
+}: VoiceCaptureTriggerProps) {
   const onCaptureRef = useRef(onCapture);
   onCaptureRef.current = onCapture;
   const onRecaptureRef = useRef(onRecapture);
   onRecaptureRef.current = onRecapture;
+  const onFinalTranscriptRef = useRef<VoiceCaptureTriggerProps['onFinalTranscript']>(undefined);
+  onFinalTranscriptRef.current = onFinalTranscript;
 
-  const { supported, listening, hasReceivedSpeech, startListening, stopListening } = useSpeechRecognition((cmd) => {
-    if (cmd === 'your_turn') onCaptureRef.current();
-    if (cmd === 'recapture') onRecaptureRef.current?.();
-  });
+  const { supported, listening, hasReceivedSpeech, startListening, stopListening } = useSpeechRecognition(
+    (cmd) => {
+      if (cmd === 'your_turn') onCaptureRef.current();
+      if (cmd === 'recapture') onRecaptureRef.current?.();
+    },
+    (text) => {
+      // The prop is optional; only forward if provided.
+      // (We keep this tiny so it doesn't interfere with recognition timing.)
+      // eslint-disable-next-line @typescript-eslint/no-use-before-define
+      onFinalTranscriptRef.current?.(text);
+    }
+  );
 
   useEffect(() => {
     if (active && supported && !requireTapToStart) {

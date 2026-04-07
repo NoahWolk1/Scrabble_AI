@@ -104,7 +104,10 @@ function extractRecentCommandCandidates(event: SpeechRecognitionEvent): string[]
   return candidates;
 }
 
-export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
+export function useSpeechRecognition(
+  onCommand?: (cmd: VoiceCommand) => void,
+  onFinalTranscript?: (text: string) => void
+) {
   const [listening, setListening] = useState(false);
   const [hasReceivedSpeech, setHasReceivedSpeech] = useState(false);
   const [supported, setSupported] = useState(false);
@@ -112,11 +115,14 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const activeRef = useRef(false);
   const onCommandRef = useRef(onCommand);
+  const onFinalTranscriptRef = useRef(onFinalTranscript);
   const lastCommandTimeRef = useRef(0);
   const transcriptAccumRef = useRef('');
   const hasReceivedSpeechRef = useRef(false);
   const consecutiveFailuresRef = useRef(0);
+  const lastFinalTranscriptRef = useRef<string>('');
   onCommandRef.current = onCommand;
+  onFinalTranscriptRef.current = onFinalTranscript;
 
   useEffect(() => {
     const SR = window.SpeechRecognition ?? window.webkitSpeechRecognition;
@@ -236,6 +242,23 @@ export function useSpeechRecognition(onCommand?: (cmd: VoiceCommand) => void) {
       // 4) Finally, only the last few words.
       if (!cmd && toCheck) cmd = matchCommand(toCheck.split(/\s+/).slice(-5).join(' '));
       if (debugRef.current) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
+
+      // Emit "final utterance" text for chat/assistant integrations.
+      if (hadFinal && onFinalTranscriptRef.current) {
+        let finalChunk = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const r = event.results[i];
+          if (!r.isFinal) continue;
+          const t = (r[0]?.transcript ?? '').trim();
+          if (t) finalChunk += (finalChunk ? ' ' : '') + t;
+        }
+        const finalText = finalChunk.trim();
+        if (finalText && finalText !== lastFinalTranscriptRef.current) {
+          lastFinalTranscriptRef.current = finalText;
+          onFinalTranscriptRef.current(finalText);
+        }
+      }
+
       if (cmd) {
         const now = Date.now();
         if (now - lastCommandTimeRef.current < 1500) return;

@@ -6,10 +6,12 @@ import { Rack } from './components/Rack';
 import { GameControls } from './components/GameControls';
 import { CameraView, type CameraViewRef } from './components/CameraView';
 import { VoiceCaptureTrigger } from './components/VoiceCaptureTrigger';
+import { ChatbotPanel, type ChatMessage } from './components/ChatbotPanel';
 import { useGameStore } from './store/gameStore';
 import { useCamera } from './hooks/useCamera';
 import { speak, unlockSpeech } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
+import { generateMoves } from './game/MoveGenerator';
 import { recognizeBoard } from './cv/BoardRecognizer';
 import { boardRecLog } from './cv/boardRecognitionLog';
 import { recognizeRackFromImage } from './cv/scrabblecamApi';
@@ -41,6 +43,10 @@ function App() {
   const [editingCell, setEditingCell] = useState<{ row: number; col: number } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [debugRecognizedGrid, setDebugRecognizedGrid] = useState<(string | null)[][] | null>(null);
+  const [chatEnabled, setChatEnabled] = useState(false);
+  const [voiceAutoSendEnabled, setVoiceAutoSendEnabled] = useState(true);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
   const [blankLetterPrompt, setBlankLetterPrompt] = useState<{
     grid: (string | null)[][];
     pending: { row: number; col: number }[];
@@ -54,6 +60,7 @@ function App() {
   const cameraRef = useRef<CameraViewRef>(null);
   const recognizingRef = useRef(recognizing);
   recognizingRef.current = recognizing;
+  const lastVoiceSentRef = useRef<{ text: string; at: number }>({ text: '', at: 0 });
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string) => {
@@ -65,6 +72,102 @@ function App() {
       toastTimeoutRef.current = null;
     }, 5000);
   }, []);
+
+  const buildChatGameState = useCallback(() => {
+    const s = useGameStore.getState();
+    const validateMove = s.validateMove;
+    const boardArr = s.board.toArray();
+    const rack = [...s.humanRack];
+    let moveCandidates: Array<{ word: string; score: number; row: number; col: number; direction: 'H' | 'V' }> = [];
+    if (s.trie && s.currentPlayer === 'human' && !s.gameOver && rack.length > 0) {
+      try {
+        const moves = generateMoves(s.board, rack, s.trie, s.isFirstMove)
+          .filter((m) => validateMove(m.tiles))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, 5);
+        moveCandidates = moves.map((m) => ({
+          word: m.word,
+          score: m.score,
+          row: m.row,
+          col: m.col,
+          direction: m.direction === 'horizontal' ? 'H' : 'V',
+        }));
+      } catch {
+        // Ignore move generation failures; chat still works without candidates.
+      }
+    }
+
+    return {
+      board: boardArr,
+      humanRack: rack,
+      aiRack: [...s.aiRack],
+      scores: s.scores,
+      currentPlayer: s.currentPlayer,
+      isFirstMove: s.isFirstMove,
+      gameOver: s.gameOver,
+      status: s.status,
+      lastAIMove: s.lastAIMove,
+      moveCandidates,
+    };
+  }, []);
+
+  const sendChat = useCallback(
+    async (text: string) => {
+      if (!chatEnabled || chatLoading) return;
+      const userMsg: ChatMessage = { role: 'user', content: text };
+      const nextMessages = [...chatMessages, userMsg].slice(-30);
+      setChatMessages(nextMessages);
+      setChatLoading(true);
+      try {
+        const gameState = buildChatGameState();
+        const resp = await fetch('/api/gemini/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: nextMessages, gameState }),
+        });
+        const data = (await resp.json()) as { status: 'OK' | 'ERROR'; reply?: string; message?: string };
+        if (!resp.ok || data.status !== 'OK' || !data.reply) {
+          throw new Error(data.message || `Chat failed (${resp.status})`);
+        }
+        const assistantMsg: ChatMessage = { role: 'assistant', content: data.reply ?? '' };
+        setChatMessages((prev) => [...prev, assistantMsg].slice(-30));
+      } catch (err) {
+        console.error('Chat send failed:', err);
+        showToast(err instanceof Error ? err.message : 'Chat failed');
+      } finally {
+        setChatLoading(false);
+      }
+    },
+    [buildChatGameState, chatEnabled, chatLoading, chatMessages, showToast]
+  );
+
+  const maybeAutoSendVoiceToChat = useCallback(
+    (finalText: string) => {
+      if (!chatEnabled || !voiceAutoSendEnabled) return;
+      const t = finalText.trim();
+      if (!t) return;
+
+      // Lightweight spam filter for mobile: ignore very short non-keyword utterances.
+      const normalized = t.toLowerCase();
+      const hasKeyIntent =
+        /\b(suggest|move|play|best|score|where|what|why|how|should|turn|done|recapture|challenge|pass)\b/.test(normalized) ||
+        normalized.endsWith('?');
+      if (!hasKeyIntent && normalized.split(/\s+/).length < 3) return;
+
+      const now = Date.now();
+      const last = lastVoiceSentRef.current;
+      if (now - last.at < 1500 && normalizeWhitespace(last.text) === normalizeWhitespace(t)) return;
+      if (now - last.at < 1200) return;
+
+      lastVoiceSentRef.current = { text: t, at: now };
+      sendChat(t);
+    },
+    [chatEnabled, sendChat, voiceAutoSendEnabled]
+  );
+
+  function normalizeWhitespace(s: string): string {
+    return s.replace(/\s+/g, ' ').trim().toLowerCase();
+  }
 
   const handleBoardImage = useCallback(
     async (file: Blob) => {
@@ -319,6 +422,16 @@ function App() {
 
           <div className="space-y-4">
             <GameControls onError={showToast} />
+            <ChatbotPanel
+              enabled={chatEnabled}
+              setEnabled={setChatEnabled}
+              messages={chatMessages}
+              loading={chatLoading}
+              onSend={sendChat}
+              onClear={() => setChatMessages([])}
+              voiceAutoSendEnabled={voiceAutoSendEnabled}
+              setVoiceAutoSendEnabled={setVoiceAutoSendEnabled}
+            />
           </div>
 
           {gameOver && (
@@ -432,6 +545,10 @@ function App() {
                       const didUndo = undoLastTurn();
                       if (didUndo && !recognizingRef.current) cameraRef.current?.capture();
                       else if (!didUndo) showToast('Nothing to recapture');
+                    }}
+                    onFinalTranscript={(t) => {
+                      // If AI Chat is enabled, we can optionally treat final speech as chat input.
+                      maybeAutoSendVoiceToChat(t);
                     }}
                   />
                   <button
