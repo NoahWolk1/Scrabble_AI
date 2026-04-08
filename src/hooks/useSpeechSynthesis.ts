@@ -46,24 +46,14 @@ export function speak(text: string, options?: { rate?: number; onEnd?: () => voi
 }
 
 /**
- * Prime speech from a recent user gesture (tap, mic, etc.). Some browsers ignore
- * volume-0 or empty-string utterances; a tiny non-empty inaudible token is more reliable.
- * The next `speak()` call will `cancel()` this, which is fine — the real line still plays.
+ * Call from a user gesture before async chat TTS. High-rate or “silent” primer
+ * utterances sound like buzzing on some phones — we only resume the engine.
  */
 export function unlockSpeech() {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
-  const synth = window.speechSynthesis;
-  primeVoices(synth);
+  primeVoices(window.speechSynthesis);
   try {
-    synth.resume();
-  } catch {
-    /* ignore */
-  }
-  const u = new SpeechSynthesisUtterance('\u00A0');
-  u.volume = 0.01;
-  u.rate = 16;
-  try {
-    synth.speak(u);
+    window.speechSynthesis.resume();
   } catch {
     /* ignore */
   }

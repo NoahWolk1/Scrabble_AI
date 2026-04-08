@@ -71,6 +71,8 @@ function App() {
   const boardCaptureFromChatRef = useRef(false);
   /** After chat says playAiMove, run playAIMove once board recognition finishes (or immediately if no capture). */
   const playAiMoveAfterRecognitionRef = useRef(false);
+  /** Resolves when a chat-triggered board capture has finished applying (so `gameState` matches the photo). */
+  const chatBoardSyncResolverRef = useRef<(() => void) | null>(null);
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string, options?: { speak?: boolean }) => {
@@ -123,6 +125,35 @@ function App() {
     };
   }, []);
 
+  const waitForBoardSyncedFromCamera = useCallback(async () => {
+    if (useGameStore.getState().gameOver) return;
+    if (!stream || !cameraRef.current) return;
+
+    const deadline = Date.now() + 20000;
+    while (recognizingRef.current && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (recognizingRef.current) return;
+
+    await new Promise<void>((resolve) => {
+      const timeout = setTimeout(() => {
+        if (chatBoardSyncResolverRef.current) {
+          chatBoardSyncResolverRef.current = null;
+        }
+        console.warn('[chat] board sync wait timed out');
+        resolve();
+      }, 20000);
+      chatBoardSyncResolverRef.current = () => {
+        clearTimeout(timeout);
+        chatBoardSyncResolverRef.current = null;
+        resolve();
+      };
+      boardCaptureFromChatRef.current = true;
+      lastChatBoardCaptureRef.current = Date.now();
+      cameraRef.current?.capture();
+    });
+  }, [stream]);
+
   const triggerBoardCaptureForChat = useCallback(
     (reason: string): boolean => {
       if (useGameStore.getState().gameOver) return false;
@@ -146,17 +177,12 @@ function App() {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      const gs = useGameStore.getState();
-
-      if (shouldCaptureBoardForChatContext({ currentPlayer: gs.currentPlayer, userText: trimmed })) {
-        triggerBoardCaptureForChat('user message (AI-turn context)');
-      }
-
       const userMsg: ChatMessage = { role: 'user', content: trimmed };
       const nextMessages = [...chatMessages, userMsg].slice(-30);
       setChatMessages(nextMessages);
       setChatLoading(true);
       try {
+        await waitForBoardSyncedFromCamera();
         const gameState = buildChatGameState();
         const resp = await fetch('/api/gemini/chat', {
           method: 'POST',
@@ -244,6 +270,7 @@ function App() {
       showToast,
       playAIMove,
       triggerBoardCaptureForChat,
+      waitForBoardSyncedFromCamera,
     ]
   );
 
@@ -337,6 +364,11 @@ function App() {
         showToast(msg, { speak: !fromChatCapture });
       } finally {
         setRecognizing(false);
+        const syncChat = chatBoardSyncResolverRef.current;
+        if (syncChat) {
+          chatBoardSyncResolverRef.current = null;
+          syncChat();
+        }
         if (playAiMoveAfterRecognitionRef.current) {
           playAiMoveAfterRecognitionRef.current = false;
           const s = useGameStore.getState();

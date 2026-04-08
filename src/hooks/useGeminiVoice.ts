@@ -11,6 +11,9 @@ type TranscribeResponse =
       geminiStatus?: string;
     };
 
+/** Voice-activity polling interval (~12 Hz). rAF at 60 Hz was heating phones. */
+const VAD_POLL_MS = 80;
+
 function pickBestMimeType(): string | null {
   if (typeof MediaRecorder === 'undefined') return null;
   const candidates = [
@@ -41,7 +44,8 @@ export function useGeminiVoice({
   const streamRef = useRef<MediaStream | null>(null);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const rafRef = useRef<number | null>(null);
+  /** Timer for voice-activity polling (keep well below display refresh to save CPU/battery). */
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
 
@@ -68,8 +72,8 @@ export function useGeminiVoice({
       }
     }
     recorderRef.current = null;
-    if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    rafRef.current = null;
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    pollTimerRef.current = null;
     analyserRef.current = null;
     if (audioCtxRef.current) {
       try {
@@ -209,7 +213,7 @@ export function useGeminiVoice({
       }
     }
 
-    rafRef.current = requestAnimationFrame(loop);
+    pollTimerRef.current = window.setTimeout(loop, VAD_POLL_MS);
   }, [startSegmentRecorder, stopAndFlushRecorder]);
 
   const start = useCallback(async () => {
@@ -237,7 +241,7 @@ export function useGeminiVoice({
     analyserRef.current = analyser;
 
     setStatus('listening');
-    rafRef.current = requestAnimationFrame(loop);
+    pollTimerRef.current = window.setTimeout(loop, VAD_POLL_MS);
   }, [loop, stopAll, supported]);
 
   useEffect(() => {
