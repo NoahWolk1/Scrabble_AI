@@ -67,8 +67,6 @@ function App() {
   /** Debounce AI "take your turn" nudges from voice or chat. */
   const lastAiTurnNudgeRef = useRef(0);
   const lastChatBoardCaptureRef = useRef(0);
-  /** Set before chat-triggered board capture; suppresses spoken toasts so they don't cancel assistant TTS. */
-  const boardCaptureFromChatRef = useRef(false);
   /** After chat says playAiMove, run playAIMove once board recognition finishes (or immediately if no capture). */
   const playAiMoveAfterRecognitionRef = useRef(false);
   /** Resolves when a chat-triggered board capture has finished applying (so `gameState` matches the photo). */
@@ -148,8 +146,8 @@ function App() {
         chatBoardSyncResolverRef.current = null;
         resolve();
       };
-      boardCaptureFromChatRef.current = true;
-      lastChatBoardCaptureRef.current = Date.now();
+      // Do not touch lastChatBoardCaptureRef here — that throttle is only for optional
+      // follow-up captures (e.g. after assistant TTS). Pre-chat sync must not block them.
       cameraRef.current?.capture();
     });
   }, [stream]);
@@ -162,8 +160,6 @@ function App() {
       const now = Date.now();
       if (now - lastChatBoardCaptureRef.current < 5000) return false;
       lastChatBoardCaptureRef.current = now;
-      // Do not call unlockSpeech() here — it can fight with assistant TTS.
-      boardCaptureFromChatRef.current = true;
       console.log('[chat] auto board capture:', reason);
       cameraRef.current?.capture();
       return true;
@@ -315,9 +311,6 @@ function App() {
 
   const handleBoardImage = useCallback(
     async (file: Blob) => {
-      const fromChatCapture = boardCaptureFromChatRef.current;
-      boardCaptureFromChatRef.current = false;
-
       setRecognizing(true);
       setToast(null);
       // Yield to browser so video can render next frame before we block
@@ -342,15 +335,11 @@ function App() {
             setDebugRecognizedGrid(grid);
           } else if (!result.success) {
             setDebugRecognizedGrid(grid);
-            showToast(
-              'message' in result && result.message ? result.message : 'Recognition failed',
-              { speak: !fromChatCapture }
-            );
+            showToast('message' in result && result.message ? result.message : 'Recognition failed');
           } else if (result.lostTurn) {
             setDebugRecognizedGrid(grid);
             showToast(
-              'message' in result && result.message ? result.message : 'Invalid move—you lost your turn',
-              { speak: !fromChatCapture }
+              'message' in result && result.message ? result.message : 'Invalid move—you lost your turn'
             );
           } else {
             setDebugRecognizedGrid(null);
@@ -361,7 +350,7 @@ function App() {
       } catch (err) {
         console.error('Recognition failed:', err);
         const msg = err instanceof Error ? err.message : 'Board recognition failed.';
-        showToast(msg, { speak: !fromChatCapture });
+        showToast(msg);
       } finally {
         setRecognizing(false);
         const syncChat = chatBoardSyncResolverRef.current;
