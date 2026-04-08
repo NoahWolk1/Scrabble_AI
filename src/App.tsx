@@ -69,6 +69,8 @@ function App() {
   const lastChatBoardCaptureRef = useRef(0);
   /** Set before chat-triggered board capture; suppresses spoken toasts so they don't cancel assistant TTS. */
   const boardCaptureFromChatRef = useRef(false);
+  /** After chat says playAiMove, run playAIMove once board recognition finishes (or immediately if no capture). */
+  const playAiMoveAfterRecognitionRef = useRef(false);
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string, options?: { speak?: boolean }) => {
@@ -122,17 +124,18 @@ function App() {
   }, []);
 
   const triggerBoardCaptureForChat = useCallback(
-    (reason: string) => {
-      if (useGameStore.getState().gameOver) return;
-      if (!stream) return;
-      if (recognizingRef.current) return;
+    (reason: string): boolean => {
+      if (useGameStore.getState().gameOver) return false;
+      if (!stream) return false;
+      if (recognizingRef.current) return false;
       const now = Date.now();
-      if (now - lastChatBoardCaptureRef.current < 5000) return;
+      if (now - lastChatBoardCaptureRef.current < 5000) return false;
       lastChatBoardCaptureRef.current = now;
-      // Do not call unlockSpeech() here — it queues a silent utterance and can interrupt chat TTS.
+      // Do not call unlockSpeech() here — it can fight with assistant TTS.
       boardCaptureFromChatRef.current = true;
       console.log('[chat] auto board capture:', reason);
       cameraRef.current?.capture();
+      return true;
     },
     [stream]
   );
@@ -197,8 +200,12 @@ function App() {
             const now = Date.now();
             if (now - lastAiTurnNudgeRef.current >= 2000) {
               lastAiTurnNudgeRef.current = now;
-              triggerBoardCaptureForChat('ai-turn nudge (model intent)');
-              void playAIMove();
+              playAiMoveAfterRecognitionRef.current = true;
+              const captureStarted = triggerBoardCaptureForChat('ai-turn nudge (model intent)');
+              if (!captureStarted && !recognizingRef.current) {
+                playAiMoveAfterRecognitionRef.current = false;
+                void playAIMove();
+              }
             }
           }
         }
@@ -330,9 +337,16 @@ function App() {
         showToast(msg, { speak: !fromChatCapture });
       } finally {
         setRecognizing(false);
+        if (playAiMoveAfterRecognitionRef.current) {
+          playAiMoveAfterRecognitionRef.current = false;
+          const s = useGameStore.getState();
+          if (s.currentPlayer === 'ai' && !s.gameOver && s.trie) {
+            void playAIMove();
+          }
+        }
       }
     },
-    [applyHumanMoveFromBoardImage, setBoardFromRecognition, showToast]
+    [applyHumanMoveFromBoardImage, setBoardFromRecognition, playAIMove, showToast]
   );
 
   const handleRackImage = useCallback(
@@ -408,12 +422,18 @@ function App() {
   }, [_currentPlayer, gameOver, humanRack, lastAIMove]);
 
   useEffect(() => {
-    if (_currentPlayer === 'human' && !gameOver && !stream) {
+    if (gameOver) {
+      stopCamera();
+      return;
+    }
+    // Keep camera on during the AI's turn when chat is enabled so board capture / recognition can run before the AI moves.
+    const needCamera = _currentPlayer === 'human' || chatEnabled;
+    if (needCamera && !stream) {
       startCamera();
-    } else if (_currentPlayer !== 'human' || gameOver) {
+    } else if (!needCamera && stream) {
       stopCamera();
     }
-  }, [_currentPlayer, gameOver, startCamera, stopCamera, stream]);
+  }, [_currentPlayer, gameOver, chatEnabled, startCamera, stopCamera, stream]);
 
   const scrollClass =
     'h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-none touch-pan-y bg-stone-100/95 dark:bg-stone-900/95';

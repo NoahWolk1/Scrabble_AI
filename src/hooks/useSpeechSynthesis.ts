@@ -1,21 +1,29 @@
 export function speak(text: string, options?: { rate?: number; onEnd?: () => void }) {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
+  const synth = window.speechSynthesis;
+  try {
+    synth.resume();
+  } catch {
+    /* ignore */
+  }
+  synth.cancel();
   const utterance = new SpeechSynthesisUtterance(text);
   utterance.rate = options?.rate ?? 0.95;
   utterance.lang = 'en-US';
   if (options?.onEnd) {
     utterance.onend = options.onEnd;
   }
-  window.speechSynthesis.speak(utterance);
+  synth.speak(utterance);
 }
 
-/** Call from a user gesture (e.g. click) so later speech in async callbacks is allowed by the browser. */
+/** Warm up speech synthesis (some browsers pause the queue until resumed). */
 export function unlockSpeech() {
   if (typeof window === 'undefined' || !window.speechSynthesis) return;
-  const u = new SpeechSynthesisUtterance('');
-  u.volume = 0;
-  window.speechSynthesis.speak(u);
+  try {
+    window.speechSynthesis.resume();
+  } catch {
+    /* ignore */
+  }
 }
 
 export function stopSpeaking() {
