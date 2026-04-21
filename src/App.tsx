@@ -19,6 +19,7 @@ import { prepareImageForRecognition } from './cv/imageUtils';
 import { useGeminiVoice } from './hooks/useGeminiVoice';
 import { stripMarkdownForSpeech } from './utils/speechText';
 import { shouldCaptureBoardForChatContext } from './utils/chatBoardCapture';
+import { Analytics } from '@vercel/analytics/react';
 
 function App() {
   const {
@@ -861,6 +862,7 @@ function App() {
           )}
         </div>
       </div>
+      <Analytics />
     </div>
   );
 }
