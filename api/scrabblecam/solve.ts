@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { fetchScrabblecam } from './fetchScrabblecam';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -16,7 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       rack_str,
       board_str,
     });
-    const scrabblecamRes = await fetch(`https://scrabblecam.com/solve?${params}`);
+    const scrabblecamRes = await fetchScrabblecam(`https://scrabblecam.com/solve?${params}`);
     const data = await scrabblecamRes.json();
     res.status(scrabblecamRes.status).json(data);
   } catch (err) {

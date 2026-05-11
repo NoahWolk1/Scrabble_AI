@@ -9,6 +9,8 @@ export default defineConfig({
       '/api/scrabblecam': {
         target: 'https://scrabblecam.com',
         changeOrigin: true,
+        // Match server: allow proxying when scrabblecam HTTPS cert is not trusted
+        secure: false,
         rewrite: (path) => path.replace(/^\/api\/scrabblecam/, ''),
       },
       '/api/gemini': {

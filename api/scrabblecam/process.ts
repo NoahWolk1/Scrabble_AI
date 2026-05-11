@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { fetchScrabblecam } from './fetchScrabblecam';
 
 // Disable body parser - we stream the raw body through
 export const config = {
@@ -25,7 +26,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
     const body = Buffer.concat(chunks);
 
-    const scrabblecamRes = await fetch('https://scrabblecam.com/process', {
+    const scrabblecamRes = await fetchScrabblecam('https://scrabblecam.com/process', {
       method: 'POST',
       body,
       headers: {
