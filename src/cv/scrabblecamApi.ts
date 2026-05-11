@@ -83,14 +83,20 @@ export async function recognizeBoardFromImage(file: Blob): Promise<BoardResponse
     body: formData,
   });
 
+  const text = await res.text();
   let data: BoardResponse;
   try {
-    data = (await res.json()) as BoardResponse;
+    data = JSON.parse(text) as BoardResponse;
   } catch {
-    throw new Error(`Scrabblecam API error: ${res.status}`);
+    const snippet = text.replace(/\s+/g, ' ').slice(0, 240).trim();
+    throw new Error(
+      snippet
+        ? `Scrabblecam API error: ${res.status} — ${snippet}${text.length > 240 ? '…' : ''}`
+        : `Scrabblecam API error: ${res.status} (empty or non-JSON response)`
+    );
   }
   if (!res.ok) {
-    const msg = data?.message ?? `Scrabblecam API error: ${res.status}`;
+    const msg = data?.message?.trim() || `Scrabblecam API error: ${res.status}`;
     throw new Error(msg);
   }
   return data;

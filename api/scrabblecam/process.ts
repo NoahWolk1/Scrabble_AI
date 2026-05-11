@@ -25,24 +25,53 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     }
     const body = Buffer.concat(chunks);
-
-    const scrabblecamRes = await fetchScrabblecam('https://scrabblecam.com/process', {
-      method: 'POST',
-      body,
-      headers: {
-        'Content-Type': contentType,
-        'Content-Length': String(body.length),
-      },
-    });
-
-    let data: { status?: string; board?: string | null; message?: string; error?: string };
-    try {
-      data = (await scrabblecamRes.json()) as typeof data;
-    } catch {
-      data = { status: 'ERROR', message: `Scrabblecam returned ${scrabblecamRes.status}` };
+    if (body.length === 0) {
+      return res.status(400).json({
+        status: 'ERROR',
+        board: null,
+        message: 'Empty request body (multipart image not received)',
+      });
     }
 
-    const msg = data?.message ?? data?.error ?? (scrabblecamRes.ok ? undefined : `Request failed: ${scrabblecamRes.status}`);
+    let scrabblecamRes: Awaited<ReturnType<typeof fetchScrabblecam>>;
+    try {
+      scrabblecamRes = await fetchScrabblecam('https://scrabblecam.com/process', {
+        method: 'POST',
+        body,
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': String(body.length),
+        },
+      });
+    } catch (upstreamErr) {
+      const m = upstreamErr instanceof Error ? upstreamErr.message : String(upstreamErr);
+      console.error('Scrabblecam upstream fetch failed:', upstreamErr);
+      return res.status(502).json({
+        status: 'ERROR',
+        board: null,
+        message: `Could not reach Scrabblecam: ${m}`,
+      });
+    }
+
+    const rawText = await scrabblecamRes.text();
+    let data: { status?: string; board?: string | null; message?: string; error?: string };
+    try {
+      data = JSON.parse(rawText) as typeof data;
+    } catch {
+      const snippet = rawText.replace(/\s+/g, ' ').slice(0, 200).trim();
+      return res.status(scrabblecamRes.status).json({
+        status: 'ERROR',
+        board: null,
+        message: snippet
+          ? `Scrabblecam returned non-JSON (${scrabblecamRes.status}): ${snippet}${rawText.length > 200 ? '…' : ''}`
+          : `Scrabblecam returned empty or non-JSON body (${scrabblecamRes.status})`,
+      });
+    }
+
+    const msg =
+      data?.message ??
+      data?.error ??
+      (scrabblecamRes.ok ? 'Unknown error' : `Request failed: ${scrabblecamRes.status}`);
     const out = {
       status: data?.status ?? (scrabblecamRes.ok ? 'OK' : 'ERROR'),
       board: data?.board ?? null,
@@ -52,6 +81,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.status(scrabblecamRes.status).json(out);
   } catch (err) {
     console.error('Scrabblecam proxy error:', err);
-    res.status(500).json({ status: 'ERROR', message: 'Proxy failed' });
+    const m = err instanceof Error ? err.message : String(err);
+    res.status(500).json({ status: 'ERROR', board: null, message: `Proxy failed: ${m}` });
   }
 }
