@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { fetchScrabblecam } from './fetchScrabblecam';
+import { readRawBody } from './readRawBody';
 
 // Disable body parser - we stream the raw body through
 export const config = {
@@ -14,17 +15,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ status: 'ERROR', message: 'Method not allowed' });
   }
 
-  const contentType = req.headers['content-type'];
+  const rawCt = req.headers['content-type'];
+  const contentType = Array.isArray(rawCt) ? rawCt[0] : rawCt;
   if (!contentType?.includes('multipart/form-data')) {
     return res.status(400).json({ status: 'ERROR', message: 'Expected multipart/form-data' });
   }
 
   try {
-    const chunks: Buffer[] = [];
-    for await (const chunk of req) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const body = Buffer.concat(chunks);
+    const body = await readRawBody(req);
     if (body.length === 0) {
       return res.status(400).json({
         status: 'ERROR',
