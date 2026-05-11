@@ -13,6 +13,16 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/api\/scrabblecam/, ''),
       },
+      '/api/elevenlabs/transcribe': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        rewrite: () => '/el-transcribe',
+      },
+      '/api/elevenlabs/tts': {
+        target: 'http://localhost:3001',
+        changeOrigin: true,
+        rewrite: () => '/el-tts',
+      },
       '/api/gemini': {
         target: 'http://localhost:3001',
         changeOrigin: true,

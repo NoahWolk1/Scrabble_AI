@@ -8,7 +8,9 @@
     "api/gemini/recognize-board.ts": { "maxDuration": 60 },
     "api/scrabblecam/process.ts": { "maxDuration": 60 },
     "api/scrabblecam/process_rack.ts": { "maxDuration": 60 },
-    "api/scrabblecam/solve.ts": { "maxDuration": 30 }
+    "api/scrabblecam/solve.ts": { "maxDuration": 30 },
+    "api/elevenlabs/transcribe.ts": { "maxDuration": 60 },
+    "api/elevenlabs/tts.ts": { "maxDuration": 30 }
   },
   "rewrites": [{ "source": "/((?!api/).*)", "destination": "/index.html" }]
 }

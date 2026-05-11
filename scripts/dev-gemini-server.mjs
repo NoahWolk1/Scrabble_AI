@@ -1,6 +1,6 @@
 /**
- * Dev server for Gemini Vision board recognition.
- * Loads .env.local for GEMINI_API_KEY. Vite proxies /api/gemini to this server.
+ * Dev server for Gemini Vision board recognition + ElevenLabs voice (STT/TTS).
+ * Loads `.env` then `.env.local` (later overrides). Vite proxies /api/gemini and /api/elevenlabs/* here.
  */
 import { createServer } from 'http';
 import { readFileSync, existsSync } from 'fs';
@@ -8,16 +8,127 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const envPath = join(__dirname, '..', '.env.local');
-if (existsSync(envPath)) {
+
+function loadEnvFile(rel) {
+  const envPath = join(__dirname, '..', rel);
+  if (!existsSync(envPath)) return;
   for (const line of readFileSync(envPath, 'utf8').split('\n')) {
     const m = line.match(/^([^#=]+)=(.*)$/);
     if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '');
   }
 }
 
+loadEnvFile('.env');
+loadEnvFile('.env.local');
+
 const PORT = 3001;
 const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+const ELEVEN_STT_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
+
+function normalizeAudioMimeTypeEl(m) {
+  const s = String(m || '').trim().toLowerCase();
+  if (s.startsWith('audio/webm')) return 'audio/webm';
+  if (s.startsWith('audio/ogg')) return 'audio/ogg';
+  if (s.startsWith('audio/mp4') || s.startsWith('audio/m4a')) return 'audio/mp4';
+  if (s.startsWith('audio/wav') || s.startsWith('audio/wave')) return 'audio/wav';
+  const base = s.split(';')[0]?.trim();
+  return base || 'audio/webm';
+}
+
+function filenameForMimeEl(mt) {
+  if (mt.includes('webm')) return 'segment.webm';
+  if (mt.includes('ogg')) return 'segment.ogg';
+  if (mt.includes('wav')) return 'segment.wav';
+  if (mt.includes('mp4') || mt.includes('m4a')) return 'segment.m4a';
+  return 'segment.bin';
+}
+
+function extractTranscriptEl(data) {
+  if (!data || typeof data !== 'object') return '';
+  if (typeof data.text === 'string') return data.text.trim();
+  if (Array.isArray(data.transcripts) && data.transcripts[0] && typeof data.transcripts[0].text === 'string') {
+    return data.transcripts[0].text.trim();
+  }
+  return '';
+}
+
+function langProbEl(data) {
+  if (!data || typeof data !== 'object') return undefined;
+  if (typeof data.language_probability === 'number') return data.language_probability;
+  if (Array.isArray(data.transcripts) && data.transcripts[0] && typeof data.transcripts[0].language_probability === 'number') {
+    return data.transcripts[0].language_probability;
+  }
+  return undefined;
+}
+
+function confidenceFromProb(p) {
+  if (p == null || Number.isNaN(p)) return 'medium';
+  if (p >= 0.9) return 'high';
+  if (p >= 0.65) return 'medium';
+  return 'low';
+}
+
+async function elevenLabsTranscribeDev(parsed) {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) throw new Error('ELEVENLABS_API_KEY not set');
+  const audioBase64 = parsed?.audioBase64;
+  const mimeTypeRaw = parsed?.mimeType || 'audio/webm;codecs=opus';
+  if (!audioBase64 || typeof audioBase64 !== 'string') throw new Error('Missing audioBase64');
+  const mt = normalizeAudioMimeTypeEl(mimeTypeRaw);
+  const dataClean = audioBase64.replace(/^data:audio\/[^;]+;base64,/, '');
+  const buf = Buffer.from(dataClean, 'base64');
+  if (buf.length < 100) throw new Error('Audio too short');
+  const modelId = process.env.ELEVENLABS_STT_MODEL_ID?.trim() || 'scribe_v1';
+  const language = process.env.ELEVENLABS_STT_LANGUAGE?.trim() || 'en';
+  const blob = new Blob([buf], { type: mt });
+  const form = new FormData();
+  form.append('model_id', modelId);
+  form.append('file', blob, filenameForMimeEl(mt));
+  form.append('language_code', language);
+  form.append('tag_audio_events', 'false');
+  const elRes = await fetch(ELEVEN_STT_URL, {
+    method: 'POST',
+    headers: { 'xi-api-key': apiKey },
+    body: form,
+  });
+  const rawText = await elRes.text();
+  if (!elRes.ok) {
+    const snippet = rawText.replace(/\s+/g, ' ').slice(0, 400);
+    throw new Error(`ElevenLabs STT ${elRes.status}: ${snippet}`);
+  }
+  const data = JSON.parse(rawText);
+  const transcript = extractTranscriptEl(data);
+  const confidence = confidenceFromProb(langProbEl(data));
+  return { transcript, confidence };
+}
+
+async function elevenLabsTtsDev(parsed) {
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  const voiceId = process.env.ELEVENLABS_VOICE_ID?.trim();
+  if (!apiKey || !voiceId) throw new Error('ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID required');
+  const textRaw = typeof parsed?.text === 'string' ? parsed.text.trim() : '';
+  if (!textRaw) throw new Error('Missing text');
+  const MAX = 2500;
+  const text = textRaw.length > MAX ? `${textRaw.slice(0, MAX)}…` : textRaw;
+  const modelId = process.env.ELEVENLABS_TTS_MODEL_ID?.trim() || 'eleven_turbo_v2_5';
+  const outputFormat = process.env.ELEVENLABS_TTS_OUTPUT_FORMAT?.trim() || 'mp3_44100_128';
+  const url = new URL(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`);
+  url.searchParams.set('output_format', outputFormat);
+  const elRes = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': apiKey,
+      'Content-Type': 'application/json',
+      Accept: 'audio/mpeg',
+    },
+    body: JSON.stringify({ text, model_id: modelId }),
+  });
+  if (!elRes.ok) {
+    const errText = await elRes.text();
+    throw new Error(`ElevenLabs TTS ${elRes.status}: ${errText.slice(0, 200)}`);
+  }
+  return Buffer.from(await elRes.arrayBuffer());
+}
 
 function tryParseGridJson(str) {
   try {
@@ -231,7 +342,14 @@ const server = createServer(async (req, res) => {
   }
 
   const path = (req.url || '').split('?')[0];
-  if (req.method !== 'POST' || (path !== '/recognize-board' && path !== '/chat' && path !== '/transcribe')) {
+  const allowedPost = new Set([
+    '/recognize-board',
+    '/chat',
+    '/transcribe',
+    '/el-transcribe',
+    '/el-tts',
+  ]);
+  if (req.method !== 'POST' || !allowedPost.has(path)) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ERROR', message: 'Not found' }));
     return;
@@ -274,6 +392,32 @@ const server = createServer(async (req, res) => {
       res.end(
         JSON.stringify({ status: 'ERROR', message: (err?.message || 'Recognition failed').replace(/[^\x20-\x7E]/g, '') })
       );
+    }
+    return;
+  }
+
+  if (path === '/el-transcribe') {
+    try {
+      const { transcript, confidence } = await elevenLabsTranscribeDev(parsed);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'OK', transcript, confidence }));
+    } catch (err) {
+      console.warn('[el-transcribe]', err?.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'Transcribe failed').replace(/[^\x20-\x7E]/g, '') }));
+    }
+    return;
+  }
+
+  if (path === '/el-tts') {
+    try {
+      const audioBuf = await elevenLabsTtsDev(parsed);
+      res.writeHead(200, { 'Content-Type': 'audio/mpeg', 'Cache-Control': 'no-store' });
+      res.end(audioBuf);
+    } catch (err) {
+      console.warn('[el-tts]', err?.message);
+      res.writeHead(502, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ERROR', message: (err?.message || 'TTS failed').replace(/[^\x20-\x7E]/g, '') }));
     }
     return;
   }
@@ -396,5 +540,5 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Gemini Vision dev server: http://localhost:${PORT}`);
+  console.log(`Gemini + ElevenLabs dev server: http://localhost:${PORT}`);
 });

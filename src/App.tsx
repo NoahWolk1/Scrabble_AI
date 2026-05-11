@@ -270,7 +270,7 @@ function App() {
     ]
   );
 
-  const { supported: geminiVoiceSupported, status: geminiVoiceStatus } = useGeminiVoice({
+  const { supported: elevenLabsMicSupported, status: elevenLabsMicStatus } = useGeminiVoice({
     enabled: chatEnabled && voiceAutoSendEnabled,
     buildGameState: buildChatGameState,
     onTranscript: ({ text, confidence }) => {
@@ -283,7 +283,7 @@ function App() {
     (finalText: string) => {
       if (!chatEnabled || !voiceAutoSendEnabled) return;
       // When the browser can use Gemini mic capture, it handles voice; otherwise fall back to Web Speech.
-      if (geminiVoiceSupported) return;
+      if (elevenLabsMicSupported) return;
       const t = finalText.trim();
       if (!t) return;
 
@@ -302,7 +302,7 @@ function App() {
       lastVoiceSentRef.current = { text: t, at: now };
       sendChat(t);
     },
-    [chatEnabled, sendChat, voiceAutoSendEnabled, geminiVoiceSupported]
+    [chatEnabled, sendChat, voiceAutoSendEnabled, elevenLabsMicSupported]
   );
 
   function normalizeWhitespace(s: string): string {
@@ -590,8 +590,8 @@ function App() {
                 setVoiceAutoSendEnabled(v);
                 if (v) unlockSpeech();
               }}
-              geminiVoiceSupported={geminiVoiceSupported}
-              geminiVoiceStatus={geminiVoiceStatus}
+              elevenLabsMicSupported={elevenLabsMicSupported}
+              elevenLabsMicStatus={elevenLabsMicStatus}
             />
           </div>
 

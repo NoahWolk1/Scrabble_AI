@@ -11,8 +11,8 @@ interface ChatbotPanelProps {
   onClear: () => void;
   voiceAutoSendEnabled: boolean;
   setVoiceAutoSendEnabled: (enabled: boolean) => void;
-  geminiVoiceSupported: boolean;
-  geminiVoiceStatus: string;
+  elevenLabsMicSupported: boolean;
+  elevenLabsMicStatus: string;
 }
 
 export function ChatbotPanel({
@@ -24,8 +24,8 @@ export function ChatbotPanel({
   onClear,
   voiceAutoSendEnabled,
   setVoiceAutoSendEnabled,
-  geminiVoiceSupported,
-  geminiVoiceStatus,
+  elevenLabsMicSupported,
+  elevenLabsMicStatus,
 }: ChatbotPanelProps) {
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -64,9 +64,9 @@ export function ChatbotPanel({
           <label
             className={`flex items-center gap-2 text-sm select-none ${enabled ? 'text-stone-700 dark:text-stone-300' : 'text-stone-400 dark:text-stone-500'}`}
             title={
-              geminiVoiceSupported
-                ? 'Send microphone audio to Gemini for transcription (falls back to browser speech if unavailable).'
-                : 'Send voice to chat using browser speech recognition (Gemini mic not available here).'
+              elevenLabsMicSupported
+                ? 'Send microphone audio to ElevenLabs Scribe for transcription (browser speech if unavailable).'
+                : 'Send voice to chat using browser speech recognition (ElevenLabs mic not available here).'
             }
           >
             <input
@@ -79,7 +79,7 @@ export function ChatbotPanel({
             Voice to chat
             {voiceAutoSendEnabled && (
               <span className="text-xs text-stone-500 dark:text-stone-400">
-                ({geminiVoiceSupported ? `Gemini · ${geminiVoiceStatus}` : 'browser speech'})
+                ({elevenLabsMicSupported ? `ElevenLabs · ${elevenLabsMicStatus}` : 'browser speech'})
               </span>
             )}
           </label>

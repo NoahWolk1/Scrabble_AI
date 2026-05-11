@@ -22,8 +22,9 @@ function pickBestMimeType(): string | null {
     'audio/ogg;codecs=opus',
     'audio/ogg',
   ];
+  const MR = MediaRecorder as typeof MediaRecorder & { isTypeSupported?: (mimeType: string) => boolean };
   for (const t of candidates) {
-    if ((MediaRecorder as any).isTypeSupported?.(t)) return t;
+    if (MR.isTypeSupported?.(t)) return t;
   }
   return null;
 }
@@ -37,7 +38,12 @@ export function useGeminiVoice({
   buildGameState: () => unknown;
   onTranscript: (t: { text: string; confidence: 'high' | 'medium' | 'low' }) => void;
 }) {
-  const [supported, setSupported] = useState(false);
+  const [supported] = useState(
+    () =>
+      typeof navigator !== 'undefined' &&
+      !!navigator.mediaDevices?.getUserMedia &&
+      typeof MediaRecorder !== 'undefined'
+  );
   const [active, setActive] = useState(false);
   const [status, setStatus] = useState<string>('idle');
 
@@ -54,10 +60,7 @@ export function useGeminiVoice({
   const lastSpeechRef = useRef<number>(0);
   const lastSentAtRef = useRef<number>(0);
   const mimeTypeRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    setSupported(typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined');
-  }, []);
+  const loopRef = useRef<() => void>(() => {});
 
   const stopAll = useCallback(() => {
     setActive(false);
@@ -101,13 +104,13 @@ export function useGeminiVoice({
       const b64 = uint8ArrayToBase64(new Uint8Array(buf));
       const gameState = buildGameState();
 
-      console.log('[gemini-client:transcribe] sending', {
+      console.log('[elevenlabs-client:transcribe] sending', {
         bytes: buf.byteLength,
         mimeType,
         b64Chars: b64.length,
       });
 
-      const resp = await fetch('/api/gemini/transcribe', {
+      const resp = await fetch('/api/elevenlabs/transcribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ audioBase64: b64, mimeType, gameState }),
@@ -117,13 +120,13 @@ export function useGeminiVoice({
       try {
         data = JSON.parse(rawText) as TranscribeResponse;
       } catch {
-        console.error('[gemini-client:transcribe] non-JSON response', resp.status, rawText.slice(0, 500));
+        console.error('[elevenlabs-client:transcribe] non-JSON response', resp.status, rawText.slice(0, 500));
         setStatus('listening');
         return;
       }
       if (!resp.ok || data.status !== 'OK') {
         const err = data.status === 'ERROR' ? data : ({ message: rawText } as TranscribeResponse);
-        console.error('[gemini-client:transcribe] failed', {
+        console.error('[elevenlabs-client:transcribe] failed', {
           httpStatus: resp.status,
           message: 'message' in err ? err.message : undefined,
           detail: 'detail' in err ? err.detail : undefined,
@@ -213,8 +216,12 @@ export function useGeminiVoice({
       }
     }
 
-    pollTimerRef.current = window.setTimeout(loop, VAD_POLL_MS);
+    pollTimerRef.current = window.setTimeout(() => loopRef.current(), VAD_POLL_MS);
   }, [startSegmentRecorder, stopAndFlushRecorder]);
+
+  useEffect(() => {
+    loopRef.current = loop;
+  }, [loop]);
 
   const start = useCallback(async () => {
     if (!supported) return;
@@ -232,7 +239,15 @@ export function useGeminiVoice({
     });
     streamRef.current = stream;
 
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) {
+      for (const t of stream.getTracks()) t.stop();
+      streamRef.current = null;
+      setActive(false);
+      setStatus('idle');
+      return;
+    }
+    const ctx = new AC();
     audioCtxRef.current = ctx;
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
@@ -246,11 +261,15 @@ export function useGeminiVoice({
 
   useEffect(() => {
     if (!enabled) {
-      stopAll();
+      queueMicrotask(() => stopAll());
       return;
     }
-    void start();
-    return () => stopAll();
+    queueMicrotask(() => {
+      void start();
+    });
+    return () => {
+      queueMicrotask(() => stopAll());
+    };
   }, [enabled, start, stopAll]);
 
   return { supported, active, status, stop: stopAll };
