@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { fetchScrabblecam } from './fetchScrabblecam';
-import { readRawBody } from './readRawBody';
+import { fetchScrabblecam } from './fetchScrabblecam.js';
+import { readRawBody } from './readRawBody.js';
 
 export const config = {
   api: { bodyParser: false },
