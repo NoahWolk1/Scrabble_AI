@@ -71,6 +71,8 @@ function App() {
   const playAiMoveAfterRecognitionRef = useRef(false);
   /** Resolves when a chat-triggered board capture has finished applying (so `gameState` matches the photo). */
   const chatBoardSyncResolverRef = useRef<(() => void) | null>(null);
+  const chatEnabledRef = useRef(chatEnabled);
+  chatEnabledRef.current = chatEnabled;
 
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showToast = useCallback((msg: string, options?: { speak?: boolean }) => {
@@ -84,6 +86,25 @@ function App() {
       toastTimeoutRef.current = null;
     }, 5000);
   }, []);
+
+  /** Recognition / game notices: assistant chat + TTS when AI Chat is on, else toast. */
+  const notifyUser = useCallback(
+    (msg: string, options?: { speak?: boolean }) => {
+      const trimmed = msg.trim();
+      if (!trimmed) return;
+      if (chatEnabledRef.current) {
+        setChatMessages((prev) =>
+          [...prev, { role: 'assistant' as const, content: trimmed }].slice(-30)
+        );
+        if (options?.speak !== false) {
+          speak(stripMarkdownForSpeech(trimmed));
+        }
+        return;
+      }
+      showToast(trimmed, options);
+    },
+    [showToast]
+  );
 
   const buildChatGameState = useCallback(() => {
     const s = useGameStore.getState();
@@ -181,7 +202,10 @@ function App() {
       setChatMessages(nextMessages);
       setChatLoading(true);
       try {
-        await waitForBoardSyncedFromCamera();
+        const shouldSyncBefore = shouldCaptureBoardForChatContext({ userText: trimmed });
+        if (shouldSyncBefore) {
+          await waitForBoardSyncedFromCamera();
+        }
         const gameState = buildChatGameState();
         const resp = await fetch('/api/gemini/chat', {
           method: 'POST',
@@ -235,12 +259,11 @@ function App() {
           }
         }
 
-        const after = useGameStore.getState();
         const speakText = stripMarkdownForSpeech(assistantMsg.content);
         const shouldCapAfter = shouldCaptureBoardForChatContext({
-          currentPlayer: after.currentPlayer,
           userText: trimmed,
           assistantText: assistantMsg.content,
+          playAiMove: data.playAiMove === true,
         });
         // Speak first so board capture / toast does not cancel assistant audio (speak() cancels prior speech).
         if (speakText.trim()) {
@@ -341,10 +364,10 @@ function App() {
             setDebugRecognizedGrid(grid);
           } else if (!result.success) {
             setDebugRecognizedGrid(grid);
-            showToast('message' in result && result.message ? result.message : 'Recognition failed');
+            notifyUser('message' in result && result.message ? result.message : 'Recognition failed');
           } else if (result.lostTurn) {
             setDebugRecognizedGrid(grid);
-            showToast(
+            notifyUser(
               'message' in result && result.message ? result.message : 'Invalid move—you lost your turn'
             );
           } else {
@@ -356,7 +379,7 @@ function App() {
       } catch (err) {
         console.error('Recognition failed:', err);
         const msg = err instanceof Error ? err.message : 'Board recognition failed.';
-        showToast(msg);
+        notifyUser(msg);
       } finally {
         setRecognizing(false);
         const syncChat = chatBoardSyncResolverRef.current;
@@ -373,7 +396,7 @@ function App() {
         }
       }
     },
-    [applyHumanMoveFromBoardImage, setBoardFromRecognition, playAIMove, showToast]
+    [applyHumanMoveFromBoardImage, setBoardFromRecognition, playAIMove, notifyUser]
   );
 
   const handleRackImage = useCallback(
@@ -388,16 +411,16 @@ function App() {
           const rack = res.rack.split(',').map((c) => (c.trim() === '?' ? ' ' : c.trim().toUpperCase()));
           setHumanRack(rack);
         } else {
-          showToast(res.message ?? 'Rack recognition failed');
+          notifyUser(res.message ?? 'Rack recognition failed');
         }
       } catch (err) {
         console.error('Rack recognition failed:', err);
-        showToast('Rack recognition failed. Try a clear photo of your tiles.');
+        notifyUser('Rack recognition failed. Try a clear photo of your tiles.');
       } finally {
         setRecognizing(false);
       }
     },
-    [setHumanRack, showToast]
+    [setHumanRack, notifyUser]
   );
 
   useEffect(() => {
@@ -841,14 +864,14 @@ function App() {
                 }
                 if (!result.success) {
                   setDebugRecognizedGrid(gridSnapshot);
-                  showToast(
+                  notifyUser(
                     'message' in result && result.message ? result.message : 'Invalid move'
                   );
                   return;
                 }
                 if (result.lostTurn) {
                   setDebugRecognizedGrid(gridSnapshot);
-                  showToast(
+                  notifyUser(
                     'message' in result && result.message
                       ? result.message
                       : 'Invalid move—you lost your turn'
