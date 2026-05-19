@@ -270,7 +270,12 @@ function App() {
     ]
   );
 
-  const { supported: elevenLabsMicSupported, status: elevenLabsMicStatus } = useGeminiVoice({
+  const {
+    supported: elevenLabsMicSupported,
+    status: elevenLabsMicStatus,
+    startListening: startChatVoiceMic,
+    stopListening: stopChatVoiceMic,
+  } = useGeminiVoice({
     enabled: chatEnabled && voiceAutoSendEnabled,
     buildGameState: buildChatGameState,
     onTranscript: ({ text, confidence }) => {
@@ -580,7 +585,11 @@ function App() {
             <GameControls onError={showToast} />
             <ChatbotPanel
               enabled={chatEnabled}
-              setEnabled={setChatEnabled}
+              setEnabled={(v) => {
+                setChatEnabled(v);
+                if (v && voiceAutoSendEnabled) startChatVoiceMic();
+                else if (!v) stopChatVoiceMic();
+              }}
               messages={chatMessages}
               loading={chatLoading}
               onSend={sendChat}
@@ -589,6 +598,10 @@ function App() {
               setVoiceAutoSendEnabled={(v) => {
                 setVoiceAutoSendEnabled(v);
                 if (v) unlockSpeech();
+              }}
+              onVoiceAutoSendChange={(on) => {
+                if (on && chatEnabled) startChatVoiceMic();
+                else stopChatVoiceMic();
               }}
               elevenLabsMicSupported={elevenLabsMicSupported}
               elevenLabsMicStatus={elevenLabsMicStatus}

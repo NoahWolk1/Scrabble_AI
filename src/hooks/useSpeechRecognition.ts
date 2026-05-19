@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { matchVoiceCommand, type VoiceCommand } from '../utils/voiceCommands';
 
 interface SpeechRecognitionEvent extends Event {
   results: SpeechRecognitionResultList;
@@ -31,7 +32,7 @@ interface SpeechRecognition extends EventTarget {
   onend: (() => void) | null;
 }
 
-export type VoiceCommand = 'play' | 'pass' | 'challenge' | 'my_turn' | 'suggest' | 'your_turn' | 'recapture' | null;
+export type { VoiceCommand } from '../utils/voiceCommands';
 
 const VOICE_LISTEN_PREFIX = '[voice-listening]';
 const VOICE_TRANSCRIPT_PREFIX = '[voice-transcript]';
@@ -55,38 +56,6 @@ function voiceListenLog(message: string, detail?: unknown): void {
   } else {
     console.log(`${VOICE_LISTEN_PREFIX} ${message}`);
   }
-}
-
-/** Normalize transcript for matching: lowercase, collapse punctuation/spaces. */
-function normalize(t: string): string {
-  return t.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
-}
-
-function matchCommand(transcript: string): VoiceCommand {
-  const t = normalize(transcript);
-  if (!t || t.length < 2) return null;
-
-  // Recapture first (before any capture-related match)
-  if (/\brecapture\b/.test(t) || /\bre\s*capture\b/.test(t)) return 'recapture';
-
-  // Capture triggers – broad patterns to catch misrecognitions
-  if (/(?:your|you['\u2019]?re|you|ur|year|yaw|yor)\s*turn\b/.test(t)) return 'your_turn';
-  // "done" is often misheard as daughter/dawn by cloud STT; include common aliases
-  if (/\b(?:done|don|dun|daughter|dawn|finish|finished|finishing|did\s*it)\b/.test(t)) return 'your_turn';
-  if (/\b(?:i\s*am\s*done|i\s*m\s*done|im\s*done|i'm\s*done)\b/.test(t)) return 'your_turn';
-  if (/\b(?:go|lets\s*go|let['\u2019]s\s*go|okay\s*go|ok\s*go|alright\s*go)\b/.test(t)) return 'your_turn';
-  if (/\b(?:ready|complete|submitted|submit|next|got\s*it)\b/.test(t)) return 'your_turn';
-  if (/\btake\s*(?:a\s*)?(?:picture|photo|shot|pick)\b/.test(t)) return 'your_turn';
-  if (/\b(?:ok(?:ay)?|yeah|yes|yep)\s*(?:go|done|finish)\b/.test(t)) return 'your_turn';
-  if (/\b(?:capture|snap|shoot)\b/.test(t)) return 'your_turn'; // after recapture check
-  if (/^(?:go|done|daughter|dawn|turn)$/.test(t)) return 'your_turn'; // short confirmations (daughter/dawn: misheard "done"; turn: sometimes isolated)
-
-  if (/\bplay\b/.test(t)) return 'play';
-  if (/\bpass\b/.test(t) || /\bpause\b/.test(t)) return 'pass';
-  if (/\bchallenge\b/.test(t)) return 'challenge';
-  if (/\bmy\s*turn\b/.test(t)) return 'my_turn';
-  if (/\b(?:suggest|hint)\b/.test(t)) return 'suggest';
-  return null;
 }
 
 function extractRecentCommandCandidates(event: SpeechRecognitionEvent): string[] {
@@ -225,22 +194,22 @@ export function useSpeechRecognition(
       // 1) Try the newest segment alternatives first (best for short commands like "done").
       const candidates = extractRecentCommandCandidates(event);
       for (let i = 0; i < candidates.length && !cmd; i++) {
-        cmd = matchCommand(candidates[i]);
+        cmd = matchVoiceCommand(candidates[i]);
       }
 
       // 2) Then try the concatenated full transcript.
-      if (!cmd) cmd = matchCommand(toCheck);
+      if (!cmd) cmd = matchVoiceCommand(toCheck);
 
       // 3) Then try alternatives for the last multi-alt result (legacy path).
       if (!cmd && lastResultWithAlts) {
         for (let j = 1; j < (lastResultWithAlts.length ?? 1); j++) {
           const alt = (lastResultWithAlts[j]?.transcript || '').trim();
-          if (alt && (cmd = matchCommand(alt))) break;
+          if (alt && (cmd = matchVoiceCommand(alt))) break;
         }
       }
 
       // 4) Finally, only the last few words.
-      if (!cmd && toCheck) cmd = matchCommand(toCheck.split(/\s+/).slice(-5).join(' '));
+      if (!cmd && toCheck) cmd = matchVoiceCommand(toCheck.split(/\s+/).slice(-5).join(' '));
       if (debugRef.current) console.log('[voice] check', JSON.stringify(toCheck), '→', cmd ?? 'no match');
 
       // Emit "final utterance" text for chat/assistant integrations.

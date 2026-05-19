@@ -11,6 +11,7 @@ interface ChatbotPanelProps {
   onClear: () => void;
   voiceAutoSendEnabled: boolean;
   setVoiceAutoSendEnabled: (enabled: boolean) => void;
+  onVoiceAutoSendChange?: (enabled: boolean) => void;
   elevenLabsMicSupported: boolean;
   elevenLabsMicStatus: string;
 }
@@ -24,6 +25,7 @@ export function ChatbotPanel({
   onClear,
   voiceAutoSendEnabled,
   setVoiceAutoSendEnabled,
+  onVoiceAutoSendChange,
   elevenLabsMicSupported,
   elevenLabsMicStatus,
 }: ChatbotPanelProps) {
@@ -73,7 +75,11 @@ export function ChatbotPanel({
               type="checkbox"
               checked={voiceAutoSendEnabled}
               disabled={!enabled}
-              onChange={(e) => setVoiceAutoSendEnabled(e.target.checked)}
+              onChange={(e) => {
+                const on = e.target.checked;
+                setVoiceAutoSendEnabled(on);
+                onVoiceAutoSendChange?.(on);
+              }}
               className="accent-emerald-600"
             />
             Voice to chat
