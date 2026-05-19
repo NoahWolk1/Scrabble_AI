@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { unlockSpeech } from '../hooks/useSpeechSynthesis';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 
@@ -120,6 +121,7 @@ export function ChatbotPanel({
         onSubmit={(e) => {
           e.preventDefault();
           if (!canSend) return;
+          unlockSpeech();
           const t = draft.trim();
           setDraft('');
           onSend(t);

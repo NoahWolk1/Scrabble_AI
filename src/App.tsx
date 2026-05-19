@@ -9,7 +9,7 @@ import { VoiceCaptureTrigger } from './components/VoiceCaptureTrigger';
 import { ChatbotPanel, type ChatMessage } from './components/ChatbotPanel';
 import { useGameStore } from './store/gameStore';
 import { useCamera } from './hooks/useCamera';
-import { speak, unlockSpeech } from './hooks/useSpeechSynthesis';
+import { speak, unlockSpeech, installSpeechUnlockOnFirstGesture } from './hooks/useSpeechSynthesis';
 import { loadDictionary } from './game/loadDictionary';
 import { generateMoves } from './game/MoveGenerator';
 import { recognizeBoard } from './cv/BoardRecognizer';
@@ -173,6 +173,9 @@ function App() {
       const trimmed = text.trim();
       if (!trimmed) return;
 
+      // Must run in the same turn as Send tap — iOS blocks audio after the await below.
+      unlockSpeech();
+
       const userMsg: ChatMessage = { role: 'user', content: trimmed };
       const nextMessages = [...chatMessages, userMsg].slice(-30);
       setChatMessages(nextMessages);
@@ -241,8 +244,6 @@ function App() {
         });
         // Speak first so board capture / toast does not cancel assistant audio (speak() cancels prior speech).
         if (speakText.trim()) {
-          // Re-arm speech after async fetch (mobile Safari often blocks TTS without a recent gesture).
-          unlockSpeech();
           speak(speakText, {
             onEnd: () => {
               if (shouldCapAfter) triggerBoardCaptureForChat('assistant reply (AI-turn context)');
@@ -404,6 +405,8 @@ function App() {
       speak('Choose the letter for your blank tile.');
     }
   }, [blankLetterPrompt]);
+
+  useEffect(() => installSpeechUnlockOnFirstGesture(), []);
 
   useEffect(() => {
     loadDictionary().then((dict) => {
